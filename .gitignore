@@ -1,6 +1,9 @@
 # Compiler files
 cache/
 out/
+py_testing/
+.DS_Store
+dependencies/
 
 # Ignores development broadcast logs
 !/broadcast

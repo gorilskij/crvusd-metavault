@@ -2,23 +2,25 @@
 pragma solidity ^0.8.13;
 
 import {Test, console} from "forge-std/Test.sol";
-import {Counter} from "../src/Counter.sol";
+import {MetaVault} from "../src/MetaVault.sol";
+import "../src/IVault.sol";
 
 contract CounterTest is Test {
-    Counter public counter;
+    MetaVault mv;
 
     function setUp() public {
-        counter = new Counter();
-        counter.setNumber(0);
+        vm.createSelectFork("https://rpc.ankr.com/eth");
+
+        address owner = makeAddr("owner");
+        mv = new MetaVault(owner);
     }
 
-    function test_Increment() public {
-        counter.increment();
-        assertEq(counter.number(), 1);
+    function test_call() public {
+        IVault(0xCeA18a8752bb7e7817F9AE7565328FE415C0f2cA).collateral_token();
     }
 
-    function testFuzz_SetNumber(uint256 x) public {
-        counter.setNumber(x);
-        assertEq(counter.number(), x);
-    }
+    // function testFuzz_SetNumber(uint256 x) public {
+    //     // counter.setNumber(x);
+    //     // assertEq(counter.number(), x);
+    // }
 }
