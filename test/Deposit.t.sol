@@ -4,6 +4,7 @@ pragma solidity ^0.8.13;
 import {Test, console} from "forge-std/Test.sol";
 import {MetaVault} from "../src/MetaVault.sol";
 import {ERC20} from "@oz/token/ERC20/ERC20.sol";
+import {ERC4626} from "@oz/token/ERC20/extensions/ERC4626.sol";
 import "../src/IVault.sol";
 
 contract CounterTest is Test {
@@ -23,6 +24,7 @@ contract CounterTest is Test {
 
     function setUp() public {
         vm.createSelectFork("https://eth.llamarpc.com");
+
         vm.label(CRV_vault, "CRV_vault");
         vm.label(USDe_vault, "USDe_vault");
         vm.label(WBTC_vault, "WBTC_vault");
@@ -33,8 +35,12 @@ contract CounterTest is Test {
 
         alice = makeAddr("alice");
         owner = makeAddr("owner");
-        mv = new MetaVault(owner);
+        mv = new MetaVault(owner, ERC20(CRVUSD));
         deal(CRVUSD, alice, type(uint256).max);
+
+        // vaults.push(new MockVault(1e20, mockCrvUSD));
+        // vaults.push(new MockVault(1e20, mockCrvUSD));
+        // vaults.push(new MockVault(1e20, mockCrvUSD));
 
         vaults.push(IVault(CRV_vault));
         vaults.push(IVault(USDe_vault));

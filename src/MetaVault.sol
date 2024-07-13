@@ -8,7 +8,7 @@ import {ERC20} from "@oz/token/ERC20/ERC20.sol";
 import {Test, console} from "forge-std/Test.sol";
 
 contract MetaVault is Ownable, ERC4626 {
-    address constant CRVUSD = 0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E;
+    ERC20 CRVUSD;
 
     struct Vault {
         address addr;
@@ -23,12 +23,17 @@ contract MetaVault is Ownable, ERC4626 {
     uint256 constant EPSILON = 200; // 2pp tolerance
 
     constructor(
-        address _owner
+        address _owner,
+        ERC20 _CRVUSD
     )
         Ownable(_owner)
         ERC20("crvUSD Lending MetaVault", "metaCrvUSD")
-        ERC4626(ERC20(CRVUSD))
-    {}
+        ERC4626(_CRVUSD)
+    {
+        console.log("mock crvUSD addr: %s", address(_CRVUSD));
+
+        CRVUSD = _CRVUSD;
+    }
 
     // TODO: rebalance when enabling or disabling a vault
     function enableVault(address _vault, uint256 _target) external onlyOwner {
@@ -40,14 +45,14 @@ contract MetaVault is Ownable, ERC4626 {
                     vaults[i].enabled = true;
                     vaults[i].target = _target;
                     numEnabled++;
-                    ERC20(CRVUSD).approve(_vault, type(uint256).max);
+                    CRVUSD.approve(_vault, type(uint256).max);
                 }
                 return;
             }
         }
         vaults.push(Vault(_vault, true, _target, 0));
         numEnabled++;
-        ERC20(CRVUSD).approve(_vault, type(uint256).max);
+        CRVUSD.approve(_vault, type(uint256).max);
     }
 
     function disableVault(address _vault) external onlyOwner {
@@ -56,7 +61,7 @@ contract MetaVault is Ownable, ERC4626 {
                 if (vaults[i].enabled) {
                     vaults[i].enabled = false;
                     numEnabled--;
-                    ERC20(CRVUSD).approve(_vault, 0);
+                    CRVUSD.approve(_vault, 0);
                 }
                 return;
             }
@@ -82,10 +87,7 @@ contract MetaVault is Ownable, ERC4626 {
         uint256 shares
     ) internal override {
         super._deposit(caller, receiver, assets, shares);
-        console.log(
-            "got %e from deposit",
-            ERC20(CRVUSD).balanceOf(address(this))
-        );
+        console.log("got %e from deposit", CRVUSD.balanceOf(address(this)));
         _allocateDeposit(assets);
     }
 
@@ -96,7 +98,10 @@ contract MetaVault is Ownable, ERC4626 {
         uint256 assets,
         uint256 shares
     ) internal override {
+        console.log("before withdrawal: %e", CRVUSD.balanceOf(address(this)));
         _deallocateWithdrawal(assets);
+        console.log("after withdrawal: %e", CRVUSD.balanceOf(address(this)));
+
         super._withdraw(caller, receiver, owner, assets, shares);
     }
 
@@ -112,9 +117,24 @@ contract MetaVault is Ownable, ERC4626 {
     }
 
     function _withdrawFromVault(uint256 vaultIndex, uint256 amount) internal {
+        console.log("TRY WITHDRAW %e", amount);
+        console.log(
+            "BEFORE %e",
+            IVault(vaults[vaultIndex].addr).maxWithdraw(address(this))
+        );
         uint256 shares = IVault(vaults[vaultIndex].addr).withdraw(amount);
+        console.log(
+            "AFTER %e",
+            IVault(vaults[vaultIndex].addr).maxWithdraw(address(this))
+        );
+
         vaults[vaultIndex].shares -= shares;
-        console.log("withdraw %e (%e shares) from vault %d", amount, shares, vaultIndex);
+        console.log(
+            "withdraw %e (%e shares) from vault %d",
+            amount,
+            shares,
+            vaultIndex
+        );
     }
 
     function _getCurrentAmounts() internal view returns (uint256[] memory) {
@@ -122,9 +142,10 @@ contract MetaVault is Ownable, ERC4626 {
         for (uint256 i = 0; i < vaults.length; i++) {
             if (vaults[i].enabled) {
                 IVault vault = IVault(vaults[i].addr);
-                amounts[i] = vault.convertToAssets(
-                    vault.balanceOf(address(this))
-                );
+                uint256 balance = vault.balanceOf(address(this));
+                if (balance > 0) {
+                    amounts[i] = vault.convertToAssets(balance);
+                }
             }
         }
         return amounts;
