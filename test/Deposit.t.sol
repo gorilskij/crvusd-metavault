@@ -23,7 +23,8 @@ contract CounterTest is Test {
     address owner;
 
     function setUp() public {
-        vm.createSelectFork("https://eth.llamarpc.com");
+        // vm.createSelectFork("https://eth.llamarpc.com");
+        vm.createSelectFork("wss://ethereum-rpc.publicnode.com");
 
         vm.label(CRV_vault, "CRV_vault");
         vm.label(USDe_vault, "USDe_vault");
@@ -87,8 +88,13 @@ contract CounterTest is Test {
 
         ERC20(CRVUSD).approve(address(mv), type(uint256).max);
 
-        uint256 shares = mv.deposit(1e23, alice);
-        mv.redeem(shares, alice, alice);
+        uint256 shares = mv.deposit(10, alice);
+
+        console.log("==== deposid done ====");
+        console.log("total assets: %e", mv.totalAssets());
+        console.log("==== withdrawing ====");
+
+        mv.redeem(shares - 3, alice, alice);
 
         for (uint256 i = 0; i < vaults.length; i++) {
             console.log("%e", vaults[i].maxWithdraw(address(mv)));

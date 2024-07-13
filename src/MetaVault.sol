@@ -6,6 +6,7 @@ import {Ownable} from "@oz/access/Ownable.sol";
 import {ERC4626} from "@oz/token/ERC20/extensions/ERC4626.sol";
 import {ERC20} from "@oz/token/ERC20/ERC20.sol";
 import {Test, console} from "forge-std/Test.sol";
+import {Math} from "@oz/utils/math/Math.sol";
 
 contract MetaVault is Ownable, ERC4626 {
     ERC20 CRVUSD;
@@ -105,6 +106,19 @@ contract MetaVault is Ownable, ERC4626 {
         super._withdraw(caller, receiver, owner, assets, shares);
     }
 
+    function _getCurrentAmounts() internal view returns (uint256[] memory) {
+        uint256[] memory amounts = new uint256[](vaults.length);
+        for (uint256 i = 0; i < vaults.length; i++) {
+            if (vaults[i].enabled) {
+                IVault vault = IVault(vaults[i].addr);
+                if (vaults[i].shares > 0) {
+                    amounts[i] = vault.convertToAssets(vaults[i].shares);
+                }
+            }
+        }
+        return amounts;
+    }
+
     function _depositIntoVault(uint256 vaultIndex, uint256 amount) internal {
         uint256 shares = IVault(vaults[vaultIndex].addr).deposit(amount);
         vaults[vaultIndex].shares += shares;
@@ -114,6 +128,16 @@ contract MetaVault is Ownable, ERC4626 {
             shares,
             vaultIndex
         );
+
+        console.log("leftover: %e", CRVUSD.balanceOf(address(this)));
+
+        // logs:
+        uint256[] memory currentAmounts = _getCurrentAmounts();
+        console.log();
+        for (uint256 i = 0; i < vaults.length; i++) {
+            console.log("current amount vault %d: %e", i, currentAmounts[i]);
+        }
+        console.log();
     }
 
     function _withdrawFromVault(uint256 vaultIndex, uint256 amount) internal {
@@ -137,20 +161,6 @@ contract MetaVault is Ownable, ERC4626 {
         );
     }
 
-    function _getCurrentAmounts() internal view returns (uint256[] memory) {
-        uint256[] memory amounts = new uint256[](vaults.length);
-        for (uint256 i = 0; i < vaults.length; i++) {
-            if (vaults[i].enabled) {
-                IVault vault = IVault(vaults[i].addr);
-                uint256 balance = vault.balanceOf(address(this));
-                if (balance > 0) {
-                    amounts[i] = vault.convertToAssets(balance);
-                }
-            }
-        }
-        return amounts;
-    }
-
     function _allocateDeposit(uint256 amount) internal {
         require(amount > 0);
 
@@ -166,11 +176,11 @@ contract MetaVault is Ownable, ERC4626 {
             }
         }
 
-        uint256 maxI = 0;
-        uint256 maxV = 0;
+        uint256 maxSpaceIdx = 0;
+        uint256 maxSpace = 0;
         for (uint256 i = 0; i < vaults.length; i++) {
             if (vaults[i].enabled) {
-                uint256 lhs = (spaces[i] * total) / 10_000;
+                uint256 lhs = (spaces[i] * total) / 10_000 + 1;
                 uint256 rhs = currentAmounts[i];
                 if (lhs <= rhs) {
                     spaces[i] = 0;
@@ -178,33 +188,29 @@ contract MetaVault is Ownable, ERC4626 {
                     // overflow?
                     spaces[i] = lhs - rhs;
 
-                    if (spaces[i] > maxV) {
-                        maxI = i;
-                        maxV = spaces[i];
+                    if (spaces[i] > maxSpace) {
+                        maxSpaceIdx = i;
+                        maxSpace = spaces[i];
                     }
                 }
                 console.log("space in vault %d: %e", i, spaces[i]);
             }
         }
 
-        if (amount <= maxV) {
-            _depositIntoVault(maxI, amount);
-        } else {
-            // deposit maxV into vault maxI
-            _depositIntoVault(maxI, maxV);
-            amount -= maxV;
+        uint256 deposit;
 
-            for (uint256 i = 0; i < vaults.length; i++) {
-                if (i != maxI && vaults[i].enabled) {
-                    if (amount <= spaces[i]) {
-                        _depositIntoVault(i, amount);
-                        break;
-                    } else {
-                        _depositIntoVault(i, spaces[i]);
-                        amount -= spaces[i];
-                    }
-                }
+        deposit = Math.min(amount, maxSpace);
+        _depositIntoVault(maxSpaceIdx, deposit);
+        amount -= deposit;
+
+        for (uint256 i = 0; amount > 0 && i < vaults.length; i++) {
+            if (i == maxSpaceIdx || !vaults[i].enabled) {
+                continue;
             }
+
+            deposit = Math.min(amount, spaces[i]);
+            _depositIntoVault(i, deposit);
+            amount -= deposit;
         }
     }
 
@@ -213,55 +219,64 @@ contract MetaVault is Ownable, ERC4626 {
 
         uint256[] memory currentAmounts = _getCurrentAmounts();
 
+        console.log();
+        for (uint256 i = 0; i < vaults.length; i++) {
+            console.log("current amount vault %d: %e", i, currentAmounts[i]);
+        }
+        console.log();
+
         uint256 total = 0;
         uint256[] memory spaces = new uint256[](vaults.length);
         for (uint256 i = 0; i < vaults.length; i++) {
             if (vaults[i].enabled) {
                 total += currentAmounts[i];
-                // TODO: overflow?
-                spaces[i] = vaults[i].target - EPSILON;
+                if (EPSILON <= vaults[i].target) {
+                    spaces[i] = vaults[i].target - EPSILON;
+                }
             }
         }
         if (amount > total) {
-            revert("bad amount");
-        } else if (amount == total) {
-            // drain all vaults
+            revert("amount > total");
         } else {
             total -= amount;
         }
-        uint256 maxI = 0;
-        uint256 maxV = 0;
+
+        console.log("total: %e", total);
+
+        uint256 maxSpaceIdx = 0;
+        uint256 maxSpace = 0;
         for (uint256 i = 0; i < vaults.length; i++) {
             if (vaults[i].enabled) {
                 uint256 lhs = currentAmounts[i];
-                uint256 rhs = (spaces[i] * total) / 10_000;
+                uint256 rhs = (spaces[i] * total) / 10_000 + 1;
                 if (rhs >= lhs) {
                     spaces[i] = 0;
                 } else {
                     spaces[i] = lhs - rhs;
-                    if (spaces[i] > maxV) {
-                        maxI = i;
-                        maxV = spaces[i];
+                    if (spaces[i] > maxSpace) {
+                        maxSpaceIdx = i;
+                        maxSpace = spaces[i];
                     }
                 }
+
+                console.log("space in vault %d: %e", i, spaces[i]);
             }
         }
-        if (amount <= maxV) {
-            _withdrawFromVault(maxI, amount);
-        } else {
-            _withdrawFromVault(maxI, maxV);
-            amount -= maxV;
-            for (uint256 i = 0; i < vaults.length; i++) {
-                if (i != maxI && vaults[i].enabled) {
-                    if (amount <= spaces[i]) {
-                        _withdrawFromVault(i, amount);
-                        break;
-                    } else {
-                        _withdrawFromVault(i, spaces[i]);
-                        amount -= spaces[i];
-                    }
-                }
+
+        uint256 withdrawal;
+
+        withdrawal = Math.min(amount, maxSpace);
+        _withdrawFromVault(maxSpaceIdx, withdrawal);
+        amount -= withdrawal;
+
+        for (uint256 i = 0; amount > 0 && i < vaults.length; i++) {
+            if (i == maxSpaceIdx || !vaults[i].enabled) {
+                continue;
             }
+
+            withdrawal = Math.min(amount, spaces[i]);
+            _withdrawFromVault(i, withdrawal);
+            amount -= withdrawal;
         }
     }
 
