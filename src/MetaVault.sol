@@ -29,6 +29,7 @@ contract MetaVault is Ownable, ERC4626 {
         ERC4626(ERC20(CRVUSD))
     {}
 
+    // TODO: rebalance when enabling or disabling a vault
     function enableVault(address _vault) external onlyOwner {
         for (uint i = 0; i < vaults.length; i++) {
             if (vaults[i].addr == _vault) {
@@ -70,11 +71,21 @@ contract MetaVault is Ownable, ERC4626 {
         _allocateDeposit(assets);
     }
 
+    function _withdraw(
+        address caller,
+        address receiver,
+        uint256 shares,
+        uint256 assets
+    ) internal override {
+        super._withdraw(caller, receiver, shares, assets);
+        _deallocateWithdrawal(assets);
+    }
+
     function _allocateDeposit(uint256 amount) internal {
         require(amount > 0);
 
         // find the vault with the most space
-        uint256 total = 0;
+        uint256 total = amount;
         uint256[] memory spaces = new uint256[](vaults.length);
         for (uint256 i = 0; i < vaults.length; i++) {
             if (vaults[i].enabled) {
@@ -107,6 +118,7 @@ contract MetaVault is Ownable, ERC4626 {
         if (amount <= maxV) {
             // deposit amount into vault maxI
             IVault(vaults[maxI].addr).deposit(amount);
+            vaults[maxI].amount += amount;
         } else {
             // deposit maxV into vault maxI
             for (uint256 i = 0; i < vaults.length; i++) {
@@ -114,14 +126,94 @@ contract MetaVault is Ownable, ERC4626 {
                     if (amount <= spaces[i]) {
                         // deposit amount into vault i
                         IVault(vaults[i].addr).deposit(amount);
+                        vaults[i].amount += amount;
                         break;
                     } else {
                         // deposit spaces[i] into vault i
                         IVault(vaults[maxI].addr).deposit(spaces[i]);
+                        vaults[maxI].amount += spaces[i];
                         amount -= spaces[i];
                     }
                 }
             }
         }
+    }
+
+    function _deallocateWithdrawal(uint256 amount) internal {
+        require(amount > 0);
+
+        uint256 total = 0;
+        uint256[] memory spaces = new uint256[](vaults.length);
+        for (uint256 i = 0; i < vaults.length; i++) {
+            if (vaults[i].enabled) {
+                total += vaults[i].amount;
+                // TODO: overflow?
+                spaces[i] = vaults[i].target - EPSILON;
+            }
+        }
+        if (amount > total) {
+            revert("bad amount");
+        } else if (amount == total) {
+            // drain all vaults
+        } else {
+            total -= amount;
+        }
+
+        uint256 maxI = 0;
+        uint256 maxV = 0;
+        for (uint256 i = 0; i < vaults.length; i++) {
+            if (vaults[i].enabled) {
+                uint256 lhs = vaults[i].amount;
+                uint256 rhs = spaces[i] * total;
+                if (rhs >= lhs) {
+                    spaces[i] = 0;
+                } else {
+                    spaces[i] = lhs - rhs;
+
+                    if (spaces[i] > maxV) {
+                        maxI = i;
+                        maxV = spaces[i];
+                    }
+                }
+            }
+        }
+
+        if (amount <= maxV) {
+            // withdraw amount from vault maxI
+            IVault(vaults[maxI].addr).withdraw(amount);
+            vaults[maxI].amount -= amount;
+        } else {
+            // withdraw maxV from vault maxI
+            IVault(vaults[maxI].addr).withdraw(maxV);
+            vaults[maxI].amount -= maxV;
+            amount -= maxV;
+
+            for (uint256 i = 0; i < vaults.length; i++) {
+                if (i != maxI && vaults[i].enabled) {
+                    if (amount <= spaces[i]) {
+                        // withdraw amount from vault i
+                        IVault(vaults[i].addr).withdraw(amount);
+                        vaults[i].amount -= amount;
+                        break;
+                    } else {
+                        // withdraw spaces[i] from vault i
+                        IVault(vaults[i].addr).withdraw(spaces[i]);
+                        vaults[i].amount -= spaces[i];
+                        amount -= spaces[i];
+                    }
+                }
+            }
+        }
+    }
+
+    function rebalance() external onlyOwner {
+        uint256 total = 0;
+        for (uint256 i = 0; i < vaults.length; i++) {
+            if (vaults[i].enabled) {
+                total += vaults[i].amount;
+            }
+        }
+
+
     }
 }
