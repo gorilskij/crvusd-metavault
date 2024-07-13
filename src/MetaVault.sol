@@ -216,5 +216,65 @@ contract MetaVault is Ownable, ERC4626 {
                 total += vaults[i].amount;
             }
         }
+
+        uint256[] memory targetAmounts = new uint256[](vaults.length);
+        // uint256[] memory diffs = new uint256[](vaults.length);
+        uint256[] memory posDiffs = new uint256[](vaults.length);
+        uint256[] memory negDiffs = new uint256[](vaults.length);
+        uint256 sumNegDiffs = 0;
+
+        for (uint256 i = 0; i < vaults.length; i++) {
+            if (vaults[i].enabled) {
+                targetAmounts[i] = (vaults[i].target * total) / 10_000;
+                // diffs[i] = vaults[i].amount - targetAmounts[i];
+                uint256 lhs = vaults[i].amount;
+                uint256 rhs = targetAmounts[i];
+                if (lhs >= rhs) {
+                    posDiffs[i] = lhs - rhs;
+                } else {
+                    negDiffs[i] = rhs - lhs;
+                    sumNegDiffs += rhs - lhs;
+                }
+            }
+        }
+
+        for (uint256 i = 0; i < vaults.length; i++) {
+            // implicitly vaults[i].enabled
+            if (posDiffs[i] > 0) {
+                uint256 transfer;
+                if (posDiffs[i] < sumNegDiffs) {
+                    transfer = posDiffs[i];
+                } else {
+                    transfer = sumNegDiffs;
+                }
+
+                // break if transfer == 0?
+
+                for (uint256 j = 0; j < vaults.length; j++) {
+                    // implicitly vaults[j].enabled && i != j
+                    if (negDiffs[j] > 0) {
+                        uint256 amount;
+                        if (negDiffs[j] < transfer) {
+                            amount = negDiffs[j];
+                        } else {
+                            amount = transfer;
+                        }
+
+                        // transfer amount from vault j to vault i
+                        IVault(vaults[j].addr).withdraw(amount);
+                        vaults[j].amount -= amount;
+                        IVault(vaults[i].addr).deposit(amount);
+                        vaults[i].amount += amount;
+
+                        transfer -= amount;
+                        negDiffs[j] -= amount;
+                        sumNegDiffs -= amount;
+                        if (transfer == 0) {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
     }
 }
