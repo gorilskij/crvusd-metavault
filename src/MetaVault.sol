@@ -30,18 +30,19 @@ contract MetaVault is Ownable, ERC4626 {
     {}
 
     // TODO: rebalance when enabling or disabling a vault
-    function enableVault(address _vault) external onlyOwner {
-        for (uint i = 0; i < vaults.length; i++) {
+    function enableVault(address _vault, uint256 _target) external onlyOwner {
+        for (uint256 i = 0; i < vaults.length; i++) {
             if (vaults[i].addr == _vault) {
                 if (!vaults[i].enabled) {
                     vaults[i].enabled = true;
+                    vaults[i].target = _target;
                     numEnabled++;
                     ERC20(CRVUSD).approve(_vault, type(uint256).max);
                 }
                 return;
             }
         }
-        vaults.push(Vault(_vault, true));
+        vaults.push(Vault(_vault, true, _target, 0));
         numEnabled++;
         ERC20(CRVUSD).approve(_vault, type(uint256).max);
     }
