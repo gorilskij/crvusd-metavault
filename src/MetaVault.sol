@@ -19,7 +19,7 @@ contract MetaVault is Ownable, ERC4626 {
     Vault[] vaults;
     uint256 numEnabled = 0;
 
-    uint256 constant EPSILON = ;
+    uint256 constant EPSILON = 200; // 2pp tolerance
 
     constructor(
         address _owner
@@ -103,8 +103,8 @@ contract MetaVault is Ownable, ERC4626 {
                 if (a <= b) {
                     spaces[i] = 0;
                 } else {
-                    // 10_000 for fraction precision
-                    spaces[i] = ((a - b) * amount * 10_000) / total;
+                    // overflow?
+                    spaces[i] = (spaces[i] * total) / 10_000 - vaults[i].amount;
 
                     if (spaces[i] > maxV) {
                         maxI = i;
@@ -164,7 +164,7 @@ contract MetaVault is Ownable, ERC4626 {
         for (uint256 i = 0; i < vaults.length; i++) {
             if (vaults[i].enabled) {
                 uint256 lhs = vaults[i].amount;
-                uint256 rhs = spaces[i] * total;
+                uint256 rhs = (spaces[i] * total) / 10_000;
                 if (rhs >= lhs) {
                     spaces[i] = 0;
                 } else {
@@ -207,13 +207,13 @@ contract MetaVault is Ownable, ERC4626 {
     }
 
     function rebalance() external onlyOwner {
+        // TODO: skip if the vault is empty?
+
         uint256 total = 0;
         for (uint256 i = 0; i < vaults.length; i++) {
             if (vaults[i].enabled) {
                 total += vaults[i].amount;
             }
         }
-
-
     }
 }
