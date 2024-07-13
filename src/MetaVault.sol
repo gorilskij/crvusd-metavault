@@ -51,7 +51,7 @@ contract MetaVault is Ownable, ERC4626 {
     }
 
     function disableVault(address _vault) external onlyOwner {
-        for (uint i = 0; i < vaults.length; i++) {
+        for (uint256 i = 0; i < vaults.length; i++) {
             if (vaults[i].addr == _vault) {
                 if (vaults[i].enabled) {
                     vaults[i].enabled = false;
