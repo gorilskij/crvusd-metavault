@@ -88,13 +88,17 @@ contract CounterTest is Test {
 
         ERC20(CRVUSD).approve(address(mv), type(uint256).max);
 
-        uint256 shares = mv.deposit(10, alice);
+        uint256 shares = mv.deposit(1e5, alice);
 
-        console.log("==== deposid done ====");
+        console.log("==== deposit done ====");
         console.log("total assets: %e", mv.totalAssets());
+        uint256 maxWithdraw = mv.maxWithdraw(alice);
+        uint256 maxRedeem = mv.maxRedeem(alice);
+        console.log("max withdraw assets %e", maxWithdraw);
+        console.log("max redeem shares %e", maxRedeem);
         console.log("==== withdrawing ====");
 
-        mv.redeem(shares - 3, alice, alice);
+        mv.redeem(maxRedeem, alice, alice);
 
         for (uint256 i = 0; i < vaults.length; i++) {
             console.log("%e", vaults[i].maxWithdraw(address(mv)));

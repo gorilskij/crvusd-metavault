@@ -106,6 +106,16 @@ contract MetaVault is Ownable, ERC4626 {
         super._withdraw(caller, receiver, owner, assets, shares);
     }
 
+    function maxWithdraw(address owner) public view override returns (uint256) {
+        uint256 assets = 0;
+        for (uint256 i = 0; i < vaults.length; i++) {
+            if (vaults[i].enabled) {
+                assets += IVault(vaults[i].addr).maxWithdraw(address(this));
+            }
+        }
+        return assets;
+    }
+
     function _getCurrentAmounts() internal view returns (uint256[] memory) {
         uint256[] memory amounts = new uint256[](vaults.length);
         for (uint256 i = 0; i < vaults.length; i++) {
@@ -214,70 +224,93 @@ contract MetaVault is Ownable, ERC4626 {
         }
     }
 
-    function _deallocateWithdrawal(uint256 amount) internal {
-        require(amount > 0);
+    function _deallocateWithdrawal(uint256 withdrawAmount) internal {
+        console.log("deallocating assets %e", withdrawAmount);
 
-        uint256[] memory currentAmounts = _getCurrentAmounts();
+        require(withdrawAmount > 0);
 
-        console.log();
+        uint256[] memory assets = new uint256[](vaults.length);
         for (uint256 i = 0; i < vaults.length; i++) {
-            console.log("current amount vault %d: %e", i, currentAmounts[i]);
+            assets[i] = IVault(vaults[i].addr).convertToAssets(
+                vaults[i].shares
+            );
         }
-        console.log();
 
-        uint256 total = 0;
-        uint256[] memory spaces = new uint256[](vaults.length);
+        uint256 totalAfterWithdrawing = 0;
+        for (uint256 i = 0; i < vaults.length; i++) {
+            // 0 for disabled vaults
+            totalAfterWithdrawing += assets[i];
+        }
+
+        totalAfterWithdrawing -= Math.min(
+            totalAfterWithdrawing,
+            withdrawAmount
+        );
+
         for (uint256 i = 0; i < vaults.length; i++) {
             if (vaults[i].enabled) {
-                total += currentAmounts[i];
-                if (EPSILON <= vaults[i].target) {
-                    spaces[i] = vaults[i].target - EPSILON;
+                uint256 minAssetsAfterWithdrawal = ((vaults[i].target -
+                    Math.min(vaults[i].target, EPSILON)) *
+                    totalAfterWithdrawing) / 10_000;
+
+                uint256 minSharesAfterWithdrawal = IVault(vaults[i].addr)
+                    .convertToShares(minAssetsAfterWithdrawal);
+
+                uint256 maxRedeemShares = vaults[i].shares -
+                    Math.min(vaults[i].shares, minSharesAfterWithdrawal);
+                //
+                //
+                //
+                uint256 withdrawFromVault = IVault(vaults[i].addr)
+                    .convertToShares(withdrawAmount);
+
+                console.log("====");
+                console.log("vault %d", i);
+                console.log("-");
+                console.log("assets %e", assets[i]);
+                console.log(
+                    "canonical max withdraw assets %e",
+                    IVault(vaults[i].addr).maxWithdraw(address(this))
+                );
+                console.log(
+                    "min assets after withdrawal %e",
+                    minAssetsAfterWithdrawal
+                );
+                // console.log("max withdrawal assets %e", maxWithdrawAssets);
+                console.log("-");
+                console.log("want to withdraw shares %e", withdrawFromVault);
+                console.log("total shares %e", vaults[i].shares);
+                console.log("max redeem shares %e", maxRedeemShares);
+                console.log(
+                    "canonical max redeem shares %e",
+                    IVault(vaults[i].addr).maxRedeem(address(this))
+                );
+
+                withdrawFromVault = Math.min(
+                    withdrawFromVault,
+                    vaults[i].shares
+                );
+                withdrawFromVault = Math.min(
+                    withdrawFromVault,
+                    maxRedeemShares
+                );
+                uint256 withdrawnAssets = IVault(vaults[i].addr).redeem(
+                    withdrawFromVault
+                );
+                withdrawAmount -= withdrawnAssets;
+
+                console.log("remaining to withdraw assets %e", withdrawAmount);
+
+                if (withdrawAmount == 0) {
+                    break;
                 }
             }
         }
-        if (amount > total) {
-            revert("amount > total");
-        } else {
-            total -= amount;
-        }
 
-        console.log("total: %e", total);
-
-        uint256 maxSpaceIdx = 0;
-        uint256 maxSpace = 0;
-        for (uint256 i = 0; i < vaults.length; i++) {
-            if (vaults[i].enabled) {
-                uint256 lhs = currentAmounts[i];
-                uint256 rhs = (spaces[i] * total) / 10_000 + 1;
-                if (rhs >= lhs) {
-                    spaces[i] = 0;
-                } else {
-                    spaces[i] = lhs - rhs;
-                    if (spaces[i] > maxSpace) {
-                        maxSpaceIdx = i;
-                        maxSpace = spaces[i];
-                    }
-                }
-
-                console.log("space in vault %d: %e", i, spaces[i]);
-            }
-        }
-
-        uint256 withdrawal;
-
-        withdrawal = Math.min(amount, maxSpace);
-        _withdrawFromVault(maxSpaceIdx, withdrawal);
-        amount -= withdrawal;
-
-        for (uint256 i = 0; amount > 0 && i < vaults.length; i++) {
-            if (i == maxSpaceIdx || !vaults[i].enabled) {
-                continue;
-            }
-
-            withdrawal = Math.min(amount, spaces[i]);
-            _withdrawFromVault(i, withdrawal);
-            amount -= withdrawal;
-        }
+        console.log(
+            "after deallocation, have: %e",
+            ERC20(CRVUSD).balanceOf(address(this))
+        );
     }
 
     function rebalance() external onlyOwner {
