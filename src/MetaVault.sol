@@ -261,16 +261,31 @@ contract MetaVault is Ownable, ERC4626 {
                 //
                 //
                 //
-                uint256 withdrawFromVault = IVault(vaults[i].addr)
-                    .convertToShares(withdrawAmount);
+                uint256 maxWithdrawAssets = IVault(vaults[i].addr).maxWithdraw(
+                    address(this)
+                );
+                uint256 withdrawFromVault = maxRedeemShares -
+                    IVault(vaults[i].addr).convertToShares(
+                        maxWithdrawAssets -
+                            Math.min(maxWithdrawAssets, withdrawAmount)
+                    );
 
                 console.log("====");
                 console.log("vault %d", i);
                 console.log("-");
+                console.log("want to withdraw assets %e", withdrawAmount);
                 console.log("assets %e", assets[i]);
                 console.log(
                     "canonical max withdraw assets %e",
                     IVault(vaults[i].addr).maxWithdraw(address(this))
+                );
+                console.log(
+                    "canonical max withdraw assets through assets->shares->assets %e",
+                    IVault(vaults[i].addr).convertToAssets(
+                        IVault(vaults[i].addr).convertToShares(
+                            IVault(vaults[i].addr).maxWithdraw(address(this))
+                        )
+                    )
                 );
                 console.log(
                     "min assets after withdrawal %e",
@@ -278,7 +293,7 @@ contract MetaVault is Ownable, ERC4626 {
                 );
                 // console.log("max withdrawal assets %e", maxWithdrawAssets);
                 console.log("-");
-                console.log("want to withdraw shares %e", withdrawFromVault);
+                console.log("want to redeem shares %e", withdrawFromVault);
                 console.log("total shares %e", vaults[i].shares);
                 console.log("max redeem shares %e", maxRedeemShares);
                 console.log(
@@ -299,6 +314,7 @@ contract MetaVault is Ownable, ERC4626 {
                 );
                 withdrawAmount -= withdrawnAssets;
 
+                console.log("withdrawn assets %e", withdrawnAssets);
                 console.log("remaining to withdraw assets %e", withdrawAmount);
 
                 if (withdrawAmount == 0) {

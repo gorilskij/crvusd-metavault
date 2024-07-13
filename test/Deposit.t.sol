@@ -98,6 +98,38 @@ contract CounterTest is Test {
         console.log("max redeem shares %e", maxRedeem);
         console.log("==== withdrawing ====");
 
+        mv.withdraw(maxWithdraw, alice, alice);
+
+        for (uint256 i = 0; i < vaults.length; i++) {
+            console.log("%e", vaults[i].maxWithdraw(address(mv)));
+        }
+
+        console.log("=====");
+
+        for (uint256 i = 0; i < vaults.length; i++) {
+            console.log(vaults[i].balanceOf(alice));
+        }
+
+        assertEq(mv.totalAssets(), 0);
+        assertEq(ERC20(CRVUSD).balanceOf(address(mv)), 0);
+    }
+
+    function test_redeem() public {
+        vm.startPrank(alice);
+        assertEq(ERC20(CRVUSD).balanceOf(address(mv)), 0);
+
+        ERC20(CRVUSD).approve(address(mv), type(uint256).max);
+
+        uint256 shares = mv.deposit(1e5, alice);
+
+        console.log("==== deposit done ====");
+        console.log("total assets: %e", mv.totalAssets());
+        uint256 maxWithdraw = mv.maxWithdraw(alice);
+        uint256 maxRedeem = mv.maxRedeem(alice);
+        console.log("max withdraw assets %e", maxWithdraw);
+        console.log("max redeem shares %e", maxRedeem);
+        console.log("==== withdrawing ====");
+
         mv.redeem(maxRedeem, alice, alice);
 
         for (uint256 i = 0; i < vaults.length; i++) {
