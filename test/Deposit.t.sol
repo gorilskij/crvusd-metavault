@@ -22,7 +22,7 @@ contract CounterTest is Test {
     address owner;
 
     function setUp() public {
-        vm.createSelectFork("https://rpc.ankr.com/eth");
+        vm.createSelectFork("https://eth.llamarpc.com");
         vm.label(CRV_vault, "CRV_vault");
         vm.label(USDe_vault, "USDe_vault");
         vm.label(WBTC_vault, "WBTC_vault");
