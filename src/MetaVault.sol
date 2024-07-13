@@ -5,6 +5,7 @@ import {IVault} from "./IVault.sol";
 import {Ownable} from "@oz/access/Ownable.sol";
 import {ERC4626} from "@oz/token/ERC20/extensions/ERC4626.sol";
 import {ERC20} from "@oz/token/ERC20/ERC20.sol";
+import {Test, console} from "forge-std/Test.sol";
 
 contract MetaVault is Ownable, ERC4626 {
     address constant CRVUSD = 0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E;
@@ -31,6 +32,8 @@ contract MetaVault is Ownable, ERC4626 {
 
     // TODO: rebalance when enabling or disabling a vault
     function enableVault(address _vault, uint256 _target) external onlyOwner {
+        console.log("enable vault", _vault, _target);
+
         for (uint256 i = 0; i < vaults.length; i++) {
             if (vaults[i].addr == _vault) {
                 if (!vaults[i].enabled) {
@@ -62,6 +65,16 @@ contract MetaVault is Ownable, ERC4626 {
         revert("not found");
     }
 
+    function totalAssets() public view override returns (uint256) {
+        uint256 total = 0;
+        for (uint256 i = 0; i < vaults.length; i++) {
+            if (vaults[i].enabled) {
+                total += IVault(vaults[i].addr).maxWithdraw(address(this));
+            }
+        }
+        return total;
+    }
+
     function _deposit(
         address caller,
         address receiver,
@@ -69,18 +82,25 @@ contract MetaVault is Ownable, ERC4626 {
         uint256 shares
     ) internal override {
         super._deposit(caller, receiver, assets, shares);
+        console.log(
+            "got %e from deposit",
+            ERC20(CRVUSD).balanceOf(address(this))
+        );
         _allocateDeposit(assets);
     }
 
     function _withdraw(
         address caller,
         address receiver,
-        uint256 shares,
-        uint256 assets
+        address owner,
+        uint256 assets,
+        uint256 shares
     ) internal override {
-        super._withdraw(caller, receiver, shares, assets);
+        super._withdraw(caller, receiver, owner, assets, shares);
         _deallocateWithdrawal(assets);
     }
+
+    // function _depositInto(uint256 vault, uint256 amount) internal {}
 
     function _allocateDeposit(uint256 amount) internal {
         require(amount > 0);
@@ -99,41 +119,49 @@ contract MetaVault is Ownable, ERC4626 {
         uint256 maxV = 0;
         for (uint256 i = 0; i < vaults.length; i++) {
             if (vaults[i].enabled) {
-                uint256 a = spaces[i] * total;
-                uint256 b = vaults[i].amount;
-                if (a <= b) {
+                uint256 lhs = (spaces[i] * total) / 10_000;
+                uint256 rhs = vaults[i].amount;
+                if (lhs <= rhs) {
                     spaces[i] = 0;
                 } else {
                     // overflow?
-                    spaces[i] = (spaces[i] * total) / 10_000 - vaults[i].amount;
+                    spaces[i] = lhs - rhs;
 
                     if (spaces[i] > maxV) {
                         maxI = i;
                         maxV = spaces[i];
                     }
                 }
+                console.log("space vault %d: %d", i, spaces[i]);
             }
         }
 
-        ERC20(CRVUSD).transferFrom(msg.sender, address(this), amount);
         if (amount <= maxV) {
             // deposit amount into vault maxI
             IVault(vaults[maxI].addr).deposit(amount);
             vaults[maxI].amount += amount;
+            console.log("deposit %e into vault %d", amount, maxI);
         } else {
             // deposit maxV into vault maxI
+            IVault(vaults[maxI].addr).deposit(maxV);
+            vaults[maxI].amount += maxV;
+            amount -= maxV;
+            console.log("deposit %e into vault %d", maxV, maxI);
+
             for (uint256 i = 0; i < vaults.length; i++) {
                 if (i != maxI && vaults[i].enabled) {
                     if (amount <= spaces[i]) {
                         // deposit amount into vault i
                         IVault(vaults[i].addr).deposit(amount);
                         vaults[i].amount += amount;
+                        console.log("deposit %e into vault %d", amount, i);
                         break;
                     } else {
                         // deposit spaces[i] into vault i
-                        IVault(vaults[maxI].addr).deposit(spaces[i]);
+                        IVault(vaults[i].addr).deposit(spaces[i]);
                         vaults[maxI].amount += spaces[i];
                         amount -= spaces[i];
+                        console.log("deposit %e into vault %d", spaces[i], i);
                     }
                 }
             }
