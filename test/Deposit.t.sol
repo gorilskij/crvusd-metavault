@@ -74,4 +74,27 @@ contract CounterTest is Test {
 
         assertEq(ERC20(CRVUSD).balanceOf(address(mv)), 0);
     }
+
+    function test_withdraw() public {
+        vm.startPrank(alice);
+        assertEq(ERC20(CRVUSD).balanceOf(address(mv)), 0);
+
+        ERC20(CRVUSD).approve(address(mv), type(uint256).max);
+
+        uint256 shares = mv.deposit(1e23, alice);
+        mv.redeem(shares, alice, alice);
+
+        for (uint256 i = 0; i < vaults.length; i++) {
+            console.log("%e", vaults[i].maxWithdraw(address(mv)));
+        }
+
+        console.log("=====");
+
+        for (uint256 i = 0; i < vaults.length; i++) {
+            console.log(vaults[i].balanceOf(alice));
+        }
+
+        assertEq(mv.totalAssets(), 0);
+        assertEq(ERC20(CRVUSD).balanceOf(address(mv)), 0);
+    }
 }

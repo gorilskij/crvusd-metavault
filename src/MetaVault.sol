@@ -14,7 +14,7 @@ contract MetaVault is Ownable, ERC4626 {
         address addr;
         bool enabled;
         uint256 target;
-        uint256 amount;
+        uint256 shares;
     }
 
     Vault[] vaults;
@@ -96,21 +96,51 @@ contract MetaVault is Ownable, ERC4626 {
         uint256 assets,
         uint256 shares
     ) internal override {
-        super._withdraw(caller, receiver, owner, assets, shares);
         _deallocateWithdrawal(assets);
+        super._withdraw(caller, receiver, owner, assets, shares);
     }
 
-    // function _depositInto(uint256 vault, uint256 amount) internal {}
+    function _depositIntoVault(uint256 vaultIndex, uint256 amount) internal {
+        uint256 shares = IVault(vaults[vaultIndex].addr).deposit(amount);
+        vaults[vaultIndex].shares += shares;
+        console.log(
+            "deposit %e (%e shares) into vault %d",
+            amount,
+            shares,
+            vaultIndex
+        );
+    }
+
+    function _withdrawFromVault(uint256 vaultIndex, uint256 amount) internal {
+        uint256 shares = IVault(vaults[vaultIndex].addr).withdraw(amount);
+        vaults[vaultIndex].shares -= shares;
+        console.log("withdraw %e (%e shares) from vault %d", amount, shares, vaultIndex);
+    }
+
+    function _getCurrentAmounts() internal view returns (uint256[] memory) {
+        uint256[] memory amounts = new uint256[](vaults.length);
+        for (uint256 i = 0; i < vaults.length; i++) {
+            if (vaults[i].enabled) {
+                IVault vault = IVault(vaults[i].addr);
+                amounts[i] = vault.convertToAssets(
+                    vault.balanceOf(address(this))
+                );
+            }
+        }
+        return amounts;
+    }
 
     function _allocateDeposit(uint256 amount) internal {
         require(amount > 0);
+
+        uint256[] memory currentAmounts = _getCurrentAmounts();
 
         // find the vault with the most space
         uint256 total = amount;
         uint256[] memory spaces = new uint256[](vaults.length);
         for (uint256 i = 0; i < vaults.length; i++) {
             if (vaults[i].enabled) {
-                total += vaults[i].amount;
+                total += currentAmounts[i];
                 spaces[i] = vaults[i].target + EPSILON;
             }
         }
@@ -120,7 +150,7 @@ contract MetaVault is Ownable, ERC4626 {
         for (uint256 i = 0; i < vaults.length; i++) {
             if (vaults[i].enabled) {
                 uint256 lhs = (spaces[i] * total) / 10_000;
-                uint256 rhs = vaults[i].amount;
+                uint256 rhs = currentAmounts[i];
                 if (lhs <= rhs) {
                     spaces[i] = 0;
                 } else {
@@ -132,36 +162,25 @@ contract MetaVault is Ownable, ERC4626 {
                         maxV = spaces[i];
                     }
                 }
-                console.log("space vault %d: %d", i, spaces[i]);
+                console.log("space in vault %d: %e", i, spaces[i]);
             }
         }
 
         if (amount <= maxV) {
-            // deposit amount into vault maxI
-            IVault(vaults[maxI].addr).deposit(amount);
-            vaults[maxI].amount += amount;
-            console.log("deposit %e into vault %d", amount, maxI);
+            _depositIntoVault(maxI, amount);
         } else {
             // deposit maxV into vault maxI
-            IVault(vaults[maxI].addr).deposit(maxV);
-            vaults[maxI].amount += maxV;
+            _depositIntoVault(maxI, maxV);
             amount -= maxV;
-            console.log("deposit %e into vault %d", maxV, maxI);
 
             for (uint256 i = 0; i < vaults.length; i++) {
                 if (i != maxI && vaults[i].enabled) {
                     if (amount <= spaces[i]) {
-                        // deposit amount into vault i
-                        IVault(vaults[i].addr).deposit(amount);
-                        vaults[i].amount += amount;
-                        console.log("deposit %e into vault %d", amount, i);
+                        _depositIntoVault(i, amount);
                         break;
                     } else {
-                        // deposit spaces[i] into vault i
-                        IVault(vaults[i].addr).deposit(spaces[i]);
-                        vaults[maxI].amount += spaces[i];
+                        _depositIntoVault(i, spaces[i]);
                         amount -= spaces[i];
-                        console.log("deposit %e into vault %d", spaces[i], i);
                     }
                 }
             }
@@ -171,11 +190,13 @@ contract MetaVault is Ownable, ERC4626 {
     function _deallocateWithdrawal(uint256 amount) internal {
         require(amount > 0);
 
+        uint256[] memory currentAmounts = _getCurrentAmounts();
+
         uint256 total = 0;
         uint256[] memory spaces = new uint256[](vaults.length);
         for (uint256 i = 0; i < vaults.length; i++) {
             if (vaults[i].enabled) {
-                total += vaults[i].amount;
+                total += currentAmounts[i];
                 // TODO: overflow?
                 spaces[i] = vaults[i].target - EPSILON;
             }
@@ -187,18 +208,16 @@ contract MetaVault is Ownable, ERC4626 {
         } else {
             total -= amount;
         }
-
         uint256 maxI = 0;
         uint256 maxV = 0;
         for (uint256 i = 0; i < vaults.length; i++) {
             if (vaults[i].enabled) {
-                uint256 lhs = vaults[i].amount;
+                uint256 lhs = currentAmounts[i];
                 uint256 rhs = (spaces[i] * total) / 10_000;
                 if (rhs >= lhs) {
                     spaces[i] = 0;
                 } else {
                     spaces[i] = lhs - rhs;
-
                     if (spaces[i] > maxV) {
                         maxI = i;
                         maxV = spaces[i];
@@ -206,28 +225,18 @@ contract MetaVault is Ownable, ERC4626 {
                 }
             }
         }
-
         if (amount <= maxV) {
-            // withdraw amount from vault maxI
-            IVault(vaults[maxI].addr).withdraw(amount);
-            vaults[maxI].amount -= amount;
+            _withdrawFromVault(maxI, amount);
         } else {
-            // withdraw maxV from vault maxI
-            IVault(vaults[maxI].addr).withdraw(maxV);
-            vaults[maxI].amount -= maxV;
+            _withdrawFromVault(maxI, maxV);
             amount -= maxV;
-
             for (uint256 i = 0; i < vaults.length; i++) {
                 if (i != maxI && vaults[i].enabled) {
                     if (amount <= spaces[i]) {
-                        // withdraw amount from vault i
-                        IVault(vaults[i].addr).withdraw(amount);
-                        vaults[i].amount -= amount;
+                        _withdrawFromVault(i, amount);
                         break;
                     } else {
-                        // withdraw spaces[i] from vault i
-                        IVault(vaults[i].addr).withdraw(spaces[i]);
-                        vaults[i].amount -= spaces[i];
+                        _withdrawFromVault(i, spaces[i]);
                         amount -= spaces[i];
                     }
                 }
@@ -236,73 +245,65 @@ contract MetaVault is Ownable, ERC4626 {
     }
 
     function rebalance() external onlyOwner {
-        // TODO: skip if the vault is empty?
-
-        uint256 total = 0;
-        for (uint256 i = 0; i < vaults.length; i++) {
-            if (vaults[i].enabled) {
-                total += vaults[i].amount;
-            }
-        }
-
-        uint256[] memory targetAmounts = new uint256[](vaults.length);
-        // uint256[] memory diffs = new uint256[](vaults.length);
-        uint256[] memory posDiffs = new uint256[](vaults.length);
-        uint256[] memory negDiffs = new uint256[](vaults.length);
-        uint256 sumNegDiffs = 0;
-
-        for (uint256 i = 0; i < vaults.length; i++) {
-            if (vaults[i].enabled) {
-                targetAmounts[i] = (vaults[i].target * total) / 10_000;
-                // diffs[i] = vaults[i].amount - targetAmounts[i];
-                uint256 lhs = vaults[i].amount;
-                uint256 rhs = targetAmounts[i];
-                if (lhs >= rhs) {
-                    posDiffs[i] = lhs - rhs;
-                } else {
-                    negDiffs[i] = rhs - lhs;
-                    sumNegDiffs += rhs - lhs;
-                }
-            }
-        }
-
-        for (uint256 i = 0; i < vaults.length; i++) {
-            // implicitly vaults[i].enabled
-            if (posDiffs[i] > 0) {
-                uint256 transfer;
-                if (posDiffs[i] < sumNegDiffs) {
-                    transfer = posDiffs[i];
-                } else {
-                    transfer = sumNegDiffs;
-                }
-
-                // break if transfer == 0?
-
-                for (uint256 j = 0; j < vaults.length; j++) {
-                    // implicitly vaults[j].enabled && i != j
-                    if (negDiffs[j] > 0) {
-                        uint256 amount;
-                        if (negDiffs[j] < transfer) {
-                            amount = negDiffs[j];
-                        } else {
-                            amount = transfer;
-                        }
-
-                        // transfer amount from vault j to vault i
-                        IVault(vaults[j].addr).withdraw(amount);
-                        vaults[j].amount -= amount;
-                        IVault(vaults[i].addr).deposit(amount);
-                        vaults[i].amount += amount;
-
-                        transfer -= amount;
-                        negDiffs[j] -= amount;
-                        sumNegDiffs -= amount;
-                        if (transfer == 0) {
-                            break;
-                        }
-                    }
-                }
-            }
-        }
+        // // TODO: skip if the vault is empty?
+        // uint256 total = 0;
+        // for (uint256 i = 0; i < vaults.length; i++) {
+        //     if (vaults[i].enabled) {
+        //         total += vaults[i].amount;
+        //     }
+        // }
+        // uint256[] memory targetAmounts = new uint256[](vaults.length);
+        // // uint256[] memory diffs = new uint256[](vaults.length);
+        // uint256[] memory posDiffs = new uint256[](vaults.length);
+        // uint256[] memory negDiffs = new uint256[](vaults.length);
+        // uint256 sumNegDiffs = 0;
+        // for (uint256 i = 0; i < vaults.length; i++) {
+        //     if (vaults[i].enabled) {
+        //         targetAmounts[i] = (vaults[i].target * total) / 10_000;
+        //         // diffs[i] = vaults[i].amount - targetAmounts[i];
+        //         uint256 lhs = vaults[i].amount;
+        //         uint256 rhs = targetAmounts[i];
+        //         if (lhs >= rhs) {
+        //             posDiffs[i] = lhs - rhs;
+        //         } else {
+        //             negDiffs[i] = rhs - lhs;
+        //             sumNegDiffs += rhs - lhs;
+        //         }
+        //     }
+        // }
+        // for (uint256 i = 0; i < vaults.length; i++) {
+        //     // implicitly vaults[i].enabled
+        //     if (posDiffs[i] > 0) {
+        //         uint256 transfer;
+        //         if (posDiffs[i] < sumNegDiffs) {
+        //             transfer = posDiffs[i];
+        //         } else {
+        //             transfer = sumNegDiffs;
+        //         }
+        //         // break if transfer == 0?
+        //         for (uint256 j = 0; j < vaults.length; j++) {
+        //             // implicitly vaults[j].enabled && i != j
+        //             if (negDiffs[j] > 0) {
+        //                 uint256 amount;
+        //                 if (negDiffs[j] < transfer) {
+        //                     amount = negDiffs[j];
+        //                 } else {
+        //                     amount = transfer;
+        //                 }
+        //                 // transfer amount from vault j to vault i
+        //                 IVault(vaults[j].addr).withdraw(amount);
+        //                 vaults[j].amount -= amount;
+        //                 IVault(vaults[i].addr).deposit(amount);
+        //                 vaults[i].amount += amount;
+        //                 transfer -= amount;
+        //                 negDiffs[j] -= amount;
+        //                 sumNegDiffs -= amount;
+        //                 if (transfer == 0) {
+        //                     break;
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
     }
 }
