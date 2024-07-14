@@ -237,7 +237,7 @@ contract CounterTest is Test {
         // TODO: add assertions
     }
 
-    function test_multiDeposit() public {
+    function test_multiDepositWithdraw() public {
         assertEq(ERC20(CRVUSD).balanceOf(address(mv)), 0);
 
         uint256 aliceDeposit = 1e5;
@@ -268,12 +268,6 @@ contract CounterTest is Test {
         console.log("> withdrawal amount (assets) %e", aliceWithdrawal);
         mv.withdraw(aliceWithdrawal, alice, alice);
 
-        // console.log("# bob redeems");
-        // vm.startPrank(bob);
-        // uint256 bobRedemption = mv.maxRedeem(bob);
-        // console.log("> redemption amount (shares) %e", bobRedemption);
-        // mv.withdraw(bobRedemption, bob, bob);
-
         console.log("# bob withdraws");
         vm.startPrank(bob);
         uint256 bobWithdrawal = mv.maxWithdraw(bob);
@@ -290,4 +284,52 @@ contract CounterTest is Test {
 
         // TODO: assertions
     }
+
+    // function test_multiDepositRedeem() public {
+    //     assertEq(ERC20(CRVUSD).balanceOf(address(mv)), 0);
+
+    //     uint256 aliceDeposit = 1e5;
+    //     uint256 bobDeposit = 2e5;
+    //     uint256 charlieDeposit = 3e5;
+
+    //     console.log("# alice deposits");
+    //     vm.startPrank(alice);
+    //     ERC20(CRVUSD).approve(address(mv), aliceDeposit);
+    //     mv.deposit(aliceDeposit, alice);
+
+    //     console.log("# bob deposits");
+    //     vm.startPrank(bob);
+    //     ERC20(CRVUSD).approve(address(mv), bobDeposit);
+    //     mv.deposit(bobDeposit, bob);
+
+    //     console.log("# charlie deposits");
+    //     vm.startPrank(charlie);
+    //     ERC20(CRVUSD).approve(address(mv), charlieDeposit);
+    //     mv.deposit(charlieDeposit, charlie);
+
+    //     console.log("# deposits are done");
+    //     // TODO: assertions
+
+    //     console.log("# alice redeems");
+    //     vm.startPrank(alice);
+    //     uint256 aliceRedemption = mv.maxRedeem(alice);
+    //     console.log("> redemption amount (shares) %e", aliceRedemption);
+    //     mv.withdraw(aliceRedemption, alice, alice);
+
+    //     console.log("# bob redeems");
+    //     vm.startPrank(bob);
+    //     uint256 bobRedemption = mv.maxRedeem(bob);
+    //     console.log("> redemption amount (shares) %e", bobRedemption);
+    //     mv.withdraw(bobRedemption, bob, bob);
+
+    //     console.log("# charlie redeems");
+    //     vm.startPrank(charlie);
+    //     uint256 charlieRedemption = mv.maxRedeem(charlie);
+    //     console.log("> redemption amount (shares) %e", charlieRedemption);
+    //     mv.withdraw(charlieRedemption, charlie, charlie);
+
+    //     console.log("# withdrawals done");
+
+    //     // TODO: assertions
+    // }
 }
