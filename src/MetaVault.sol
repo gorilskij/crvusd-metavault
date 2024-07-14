@@ -22,6 +22,7 @@ contract MetaVault is Ownable, ERC4626 {
     uint256 numEnabled = 0;
 
     uint256 constant EPSILON = 200; // 2pp tolerance
+
     // uint256 constant REBALANCE_EPSILON = 5; // 0.5pp tolerance
 
     constructor(
@@ -90,7 +91,10 @@ contract MetaVault is Ownable, ERC4626 {
 
     // targets must contain the same number of elements as there are
     // enabled vaults and its values must add up to 10_000
-    function setTargets(uint256[] calldata targets, bool doRebalance) external onlyOwner {
+    function setTargets(
+        uint256[] calldata targets,
+        bool doRebalance
+    ) external onlyOwner {
         uint256 ti = 0;
         uint256 total = 0;
         for (uint256 i = 0; i < vaults.length; i++) {
@@ -165,6 +169,14 @@ contract MetaVault is Ownable, ERC4626 {
         return Math.min(super.maxWithdraw(owner), _maxTotalWithdraw());
     }
 
+    // function maxRedeem(address owner) public view override returns (uint256) {
+    //     return
+    //         Math.min(
+    //             super.maxRedeem(owner),
+    //             convertToShares(_maxTotalWithdraw())
+    //         );
+    // }
+
     function _getCurrentAmounts() internal view returns (uint256[] memory) {
         uint256[] memory amounts = new uint256[](vaults.length);
         for (uint256 i = 0; i < vaults.length; i++) {
@@ -178,12 +190,15 @@ contract MetaVault is Ownable, ERC4626 {
         return amounts;
     }
 
-    function _depositIntoVault(uint256 vaultIndex, uint256 amount) internal {
-        uint256 shares = IVault(vaults[vaultIndex].addr).deposit(amount);
+    function _depositIntoVault(
+        uint256 vaultIndex,
+        uint256 assets
+    ) internal returns (uint256) {
+        uint256 shares = IVault(vaults[vaultIndex].addr).deposit(assets);
         vaults[vaultIndex].shares += shares;
         console.log(
-            "deposit %e (%e shares) into vault %d",
-            amount,
+            "deposit assets %e (%e shares) into vault %d",
+            assets,
             shares,
             vaultIndex
         );
@@ -197,15 +212,20 @@ contract MetaVault is Ownable, ERC4626 {
             console.log("current amount vault %d: %e", i, currentAmounts[i]);
         }
         console.log();
+
+        return shares;
     }
 
-    function _withdrawFromVault(uint256 vaultIndex, uint256 amount) internal {
-        console.log("TRY WITHDRAW %e", amount);
+    function _withdrawFromVault(
+        uint256 vaultIndex,
+        uint256 assets
+    ) internal returns (uint256) {
+        console.log("TRY WITHDRAW assets %e", assets);
         console.log(
             "BEFORE %e",
             IVault(vaults[vaultIndex].addr).maxWithdraw(address(this))
         );
-        uint256 shares = IVault(vaults[vaultIndex].addr).withdraw(amount);
+        uint256 shares = IVault(vaults[vaultIndex].addr).withdraw(assets);
         console.log(
             "AFTER %e",
             IVault(vaults[vaultIndex].addr).maxWithdraw(address(this))
@@ -213,63 +233,93 @@ contract MetaVault is Ownable, ERC4626 {
 
         vaults[vaultIndex].shares -= shares;
         console.log(
-            "withdraw %e (%e shares) from vault %d",
-            amount,
+            "withdraw assets %e (%e shares) from vault %d",
+            assets,
             shares,
             vaultIndex
         );
+
+        return shares;
     }
 
-    function _allocateDeposit(uint256 amount) internal {
-        require(amount > 0);
+    function _redeemFromVault(
+        uint256 vaultIndex,
+        uint256 shares
+    ) internal returns (uint256) {
+        console.log("TRY REDEEM shares %e", shares);
+        console.log(
+            "BEFORE %e",
+            IVault(vaults[vaultIndex].addr).maxWithdraw(address(this))
+        );
+        uint256 assets = IVault(vaults[vaultIndex].addr).redeem(shares);
+        console.log(
+            "AFTER %e",
+            IVault(vaults[vaultIndex].addr).maxWithdraw(address(this))
+        );
 
-        uint256[] memory currentAmounts = _getCurrentAmounts();
+        vaults[vaultIndex].shares -= shares;
+        console.log(
+            "redeem shares %e (%e assets) from vault %d",
+            shares,
+            assets,
+            vaultIndex
+        );
 
-        // find the vault with the most space
-        uint256 total = amount;
-        uint256[] memory spaces = new uint256[](vaults.length);
+        return assets;
+    }
+
+    // TODO: re-implement max first for the following two functions
+    function _allocateDeposit(uint256 depositAmount) internal {
+        require(depositAmount > 0);
+
+        uint256[] memory assets = new uint256[](vaults.length);
         for (uint256 i = 0; i < vaults.length; i++) {
-            if (vaults[i].enabled) {
-                total += currentAmounts[i];
-                spaces[i] = vaults[i].target + EPSILON;
-            }
+            assets[i] = IVault(vaults[i].addr).convertToAssets(
+                vaults[i].shares
+            );
         }
 
-        uint256 maxSpaceIdx = 0;
-        uint256 maxSpace = 0;
+        uint256 totalAfterDepositing = 0;
+        for (uint256 i = 0; i < vaults.length; i++) {
+            // 0 for disabled vaults
+            totalAfterDepositing += assets[i];
+        }
+
+        totalAfterDepositing += depositAmount;
+
         for (uint256 i = 0; i < vaults.length; i++) {
             if (vaults[i].enabled) {
-                uint256 lhs = (spaces[i] * total) / 10_000 + 1;
-                uint256 rhs = currentAmounts[i];
-                if (lhs <= rhs) {
-                    spaces[i] = 0;
-                } else {
-                    // overflow?
-                    spaces[i] = lhs - rhs;
+                // TODO: use rounding instead of +1
+                uint256 maxAssetsAfterDeposit = ((vaults[i].target + EPSILON) *
+                    totalAfterDepositing) /
+                    10_000 +
+                    1;
 
-                    if (spaces[i] > maxSpace) {
-                        maxSpaceIdx = i;
-                        maxSpace = spaces[i];
-                    }
+                // TODO: round up instead of +1
+                // uint256 maxSharesAfterDeposit = IVault(vaults[i].addr)
+                //     .convertToShares(maxAssetsAfterDeposit) + 1;
+
+                // TODO: round up instead of +1
+                // uint256 maxDepositShares = maxSharesAfterDeposit -
+                //     Math.min(maxSharesAfterDeposit, vaults[i].shares) + 1;
+
+                // TODO: round up instead of +1
+                uint256 maxDepositAssets = maxAssetsAfterDeposit -
+                    Math.min(maxAssetsAfterDeposit, assets[i]) +
+                    1;
+
+                uint256 depositIntoVault = Math.min(
+                    depositAmount,
+                    maxDepositAssets
+                );
+
+                uint256 shares = _depositIntoVault(i, depositIntoVault);
+                depositAmount -= depositIntoVault;
+
+                if (depositAmount == 0) {
+                    break;
                 }
-                console.log("space in vault %d: %e", i, spaces[i]);
             }
-        }
-
-        uint256 deposit;
-
-        deposit = Math.min(amount, maxSpace);
-        _depositIntoVault(maxSpaceIdx, deposit);
-        amount -= deposit;
-
-        for (uint256 i = 0; amount > 0 && i < vaults.length; i++) {
-            if (i == maxSpaceIdx || !vaults[i].enabled) {
-                continue;
-            }
-
-            deposit = Math.min(amount, spaces[i]);
-            _depositIntoVault(i, deposit);
-            amount -= deposit;
         }
     }
 
@@ -291,6 +341,7 @@ contract MetaVault is Ownable, ERC4626 {
             totalAfterWithdrawing += assets[i];
         }
 
+        // TODO: revert if total < withdrawAmount
         totalAfterWithdrawing -= Math.min(
             totalAfterWithdrawing,
             withdrawAmount
@@ -313,11 +364,19 @@ contract MetaVault is Ownable, ERC4626 {
                 uint256 maxWithdrawAssets = IVault(vaults[i].addr).maxWithdraw(
                     address(this)
                 );
-                uint256 withdrawFromVault = maxRedeemShares -
-                    IVault(vaults[i].addr).convertToShares(
-                        maxWithdrawAssets -
-                            Math.min(maxWithdrawAssets, withdrawAmount)
-                    );
+                // console.log("=begin");
+                // uint256 tmp = IVault(vaults[i].addr).convertToShares(
+                //     maxWithdrawAssets -
+                //         Math.min(maxWithdrawAssets, withdrawAmount)
+                // );
+                // console.log("=tmp %e", tmp);
+                // uint256 redeemFromVault = maxRedeemShares -
+                //     Math.min(maxRedeemShares, tmp);
+                // console.log("=end");
+
+                // TODO: round up instead of +1
+                uint256 redeemFromVault = IVault(vaults[i].addr)
+                    .convertToShares(withdrawAmount) + 1;
 
                 console.log("====");
                 console.log("vault %d", i);
@@ -342,7 +401,7 @@ contract MetaVault is Ownable, ERC4626 {
                 );
                 // console.log("max withdrawal assets %e", maxWithdrawAssets);
                 console.log("-");
-                console.log("want to redeem shares %e", withdrawFromVault);
+                console.log("want to redeem shares %e", redeemFromVault);
                 console.log("total shares %e", vaults[i].shares);
                 console.log("max redeem shares %e", maxRedeemShares);
                 console.log(
@@ -350,17 +409,12 @@ contract MetaVault is Ownable, ERC4626 {
                     IVault(vaults[i].addr).maxRedeem(address(this))
                 );
 
-                withdrawFromVault = Math.min(
-                    withdrawFromVault,
-                    vaults[i].shares
-                );
-                withdrawFromVault = Math.min(
-                    withdrawFromVault,
-                    maxRedeemShares
-                );
-                uint256 withdrawnAssets = IVault(vaults[i].addr).redeem(
-                    withdrawFromVault
-                );
+                redeemFromVault = Math.min(redeemFromVault, vaults[i].shares);
+                redeemFromVault = Math.min(redeemFromVault, maxRedeemShares);
+                // uint256 withdrawnAssets = IVault(vaults[i].addr).redeem(
+                // withdrawFromVault
+                // );
+                uint256 withdrawnAssets = _redeemFromVault(i, redeemFromVault);
                 withdrawAmount -= withdrawnAssets;
 
                 console.log("withdrawn assets %e", withdrawnAssets);
@@ -383,7 +437,9 @@ contract MetaVault is Ownable, ERC4626 {
         uint256 sumAssets = 0;
         for (uint256 i = 0; i < vaults.length; i++) {
             // 0 for disabled vaults
-            uint256 vaultAssets = IVault(vaults[i].addr).convertToAssets(vaults[i].shares);
+            uint256 vaultAssets = IVault(vaults[i].addr).convertToAssets(
+                vaults[i].shares
+            );
             assets[i] = vaultAssets;
             sumAssets += vaultAssets;
         }
@@ -396,7 +452,11 @@ contract MetaVault is Ownable, ERC4626 {
             if (vaults[i].enabled) {
                 uint256 targetAmount = (vaults[i].target * sumAssets) / 10_000;
 
-                console.log("target amount for vault %d is %e", i, targetAmount);
+                console.log(
+                    "target amount for vault %d is %e",
+                    i,
+                    targetAmount
+                );
 
                 if (assets[i] > targetAmount) {
                     uint256 take = Math.min(
@@ -421,7 +481,11 @@ contract MetaVault is Ownable, ERC4626 {
             if (!done[i]) {
                 uint256 targetAmount = (vaults[i].target * sumAssets) / 10_000;
 
-                console.log("target amount for vault %d is %e", i, targetAmount);
+                console.log(
+                    "target amount for vault %d is %e",
+                    i,
+                    targetAmount
+                );
 
                 if (assets[i] < targetAmount) {
                     uint256 give = Math.min(
@@ -441,7 +505,11 @@ contract MetaVault is Ownable, ERC4626 {
         if (totalTaken > 0) {
             // IVault(vaults[lastGivenIdx].addr).deposit(totalTaken);
             _depositIntoVault(lastGivenIdx, totalTaken);
-            console.log("give residual %e assets to vault %d", totalTaken, lastGivenIdx);
+            console.log(
+                "give residual %e assets to vault %d",
+                totalTaken,
+                lastGivenIdx
+            );
         }
     }
 }
