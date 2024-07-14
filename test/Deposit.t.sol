@@ -15,7 +15,7 @@ contract MetaVaultHarness is MetaVault {
         MetaVault(_owner, _CRVUSD)
     {}
 
-    function depositIntoVault(uint256 vaultIdx, uint256 assets) external {
+    function __depositIntoVault(uint256 vaultIdx, uint256 assets) external {
         ERC20(CRVUSD).transferFrom(msg.sender, address(this), assets);
         _depositIntoVault(vaultIdx, assets);
     }
@@ -63,8 +63,11 @@ contract CounterTest is Test {
 
     MetaVaultHarness mv;
     IVault[] vaults;
-    address alice;
+
     address owner;
+    address alice;
+    address bob;
+    address charlie;
 
     function setUp() public {
         // vm.createSelectFork("https://eth.llamarpc.com");
@@ -78,8 +81,11 @@ contract CounterTest is Test {
         vm.label(sFRAX_vault, "sFRAX_vault");
         vm.label(CRVUSD, "CRVUSD");
 
-        alice = makeAddr("alice");
         owner = makeAddr("owner");
+        alice = makeAddr("alice");
+        bob = makeAddr("bob");
+        charlie = makeAddr("charlie");
+
         mv = new MetaVaultHarness(owner, ERC20(CRVUSD));
         deal(CRVUSD, alice, type(uint256).max);
 
@@ -196,7 +202,7 @@ contract CounterTest is Test {
 
         ERC20(CRVUSD).approve(address(mv), type(uint256).max);
 
-        mv.depositIntoVault(0, 1e5);
+        mv.__depositIntoVault(0, 1e5);
 
         console.log("before rebalance");
         uint256[] memory assets = mv.__assets();
@@ -216,5 +222,69 @@ contract CounterTest is Test {
         for (uint256 i = 0; i < percentages.length; i++) {
             console.log("vault %d assets: %e percentage: %d", i, assets[i], percentages[i]);
         }
+
+        // TODO: add assertions
+    }
+
+    function test_multiDeposit() public {
+
+        assertEq(ERC20(CRVUSD).balanceOf(address(mv)), 0);
+
+        uint256 aliceDeposit = 1e5;
+        uint256 bobDeposit = 2e5;
+        uint256 charlieDeposit = 3e5;
+
+        console.log("alice deposits");
+        vm.startPrank(alice);
+        ERC20(CRVUSD).approve(address(mv), aliceDeposit);
+        mv.deposit(aliceDeposit, alice);
+
+        console.log("bob deposits");
+        vm.startPrank(bob);
+        ERC20(CRVUSD).approve(address(mv), bobDeposit);
+        mv.deposit(bobDeposit, bob);
+
+        console.log("charlie deposits");
+        vm.startPrank(charlie);
+        ERC20(CRVUSD).approve(address(mv), charlieDeposit);
+        mv.deposit(charlieDeposit, charlie);
+
+        console.log("deposits are done");
+        // TODO: assertions
+
+        console.log("alice withdraws");
+        vm.startPrank(alice);
+        uint256 aliceWithdrawal = mv.maxWithdraw(alice);
+        console.log("withdrawal amount (assets) %e", aliceWithdrawal);
+        mv.withdraw(aliceWithdrawal, alice, alice);
+
+        console.log("bob redeems");
+        vm.startPrank(bob);
+        uint256 bobRedemption = mv.maxRedeem(bob);
+        console.log("redemption amount (shares) %e", bobRedemption);
+        mv.withdraw(bobRedemption, bob, bob);
+
+        console.log("charlie withdraws");
+        vm.startPrank(charlie);
+        uint256 charlieWithdrawal = mv.maxWithdraw(charlie);
+        console.log("withdrawal amount (assets) %e", charlieWithdrawal);
+        mv.withdraw(charlieWithdrawal, charlie, charlie);
+
+        console.log("withdrawals done");
+
+        // TODO: assertions
+
+        // for (uint256 i = 0; i < vaults.length; i++) {
+        //     console.log("%e", vaults[i].maxWithdraw(address(mv)));
+        // }
+
+        // console.log("=====");
+
+        // for (uint256 i = 0; i < vaults.length; i++) {
+        //     console.log(vaults[i].balanceOf(alice));
+        // }
+
+        // assertEq(mv.totalAssets(), 0);
+        // assertEq(ERC20(CRVUSD).balanceOf(address(mv)), 0);
     }
 }

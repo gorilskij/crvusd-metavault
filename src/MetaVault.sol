@@ -72,6 +72,50 @@ contract MetaVault is Ownable, ERC4626 {
         revert("not found");
     }
 
+    function getEnabledVaults() external view returns (uint256[] memory) {
+        uint256[] memory enabledVaults = new uint256[](vaults.length);
+        uint256 count = 0;
+        for (uint256 i = 0; i < vaults.length; i++) {
+            if (vaults[i].enabled) {
+                enabledVaults[count] = i;
+                count++;
+            }
+        }
+        uint256[] memory packed = new uint256[](count);
+        for (uint256 i = 0; i < count; i++) {
+            packed[i] = enabledVaults[i];
+        }
+        return packed;
+    }
+
+    // targets must contain the same number of elements as there are
+    // enabled vaults and its values must add up to 10_000
+    function setTargets(uint256[] calldata targets, bool doRebalance) external onlyOwner {
+        uint256 ti = 0;
+        uint256 total = 0;
+        for (uint256 i = 0; i < vaults.length; i++) {
+            if (vaults[i].enabled) {
+                if (ti > targets.length) {
+                    revert("too few targets provided");
+                }
+
+                vaults[i].target = targets[ti];
+                total += targets[ti];
+                ti++;
+            }
+        }
+        if (ti < targets.length) {
+            revert("too many targets provided");
+        }
+        if (total != 10_000) {
+            revert("targets do not add up to 10_000");
+        }
+
+        if (doRebalance) {
+            rebalance();
+        }
+    }
+
     function totalAssets() public view override returns (uint256) {
         uint256 total = 0;
         for (uint256 i = 0; i < vaults.length; i++) {
@@ -107,7 +151,7 @@ contract MetaVault is Ownable, ERC4626 {
         super._withdraw(caller, receiver, owner, assets, shares);
     }
 
-    function maxWithdraw(address owner) public view override returns (uint256) {
+    function _maxTotalWithdraw() public view returns (uint256) {
         uint256 assets = 0;
         for (uint256 i = 0; i < vaults.length; i++) {
             if (vaults[i].enabled) {
@@ -115,6 +159,10 @@ contract MetaVault is Ownable, ERC4626 {
             }
         }
         return assets;
+    }
+
+    function maxWithdraw(address owner) public view override returns (uint256) {
+        return Math.min(super.maxWithdraw(owner), _maxTotalWithdraw());
     }
 
     function _getCurrentAmounts() internal view returns (uint256[] memory) {
@@ -330,7 +378,7 @@ contract MetaVault is Ownable, ERC4626 {
         );
     }
 
-    function rebalance() external onlyOwner {
+    function rebalance() public onlyOwner {
         uint256[] memory assets = new uint256[](vaults.length);
         uint256 sumAssets = 0;
         for (uint256 i = 0; i < vaults.length; i++) {
