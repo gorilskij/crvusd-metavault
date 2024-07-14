@@ -7,6 +7,50 @@ import {ERC20} from "@oz/token/ERC20/ERC20.sol";
 import {ERC4626} from "@oz/token/ERC20/extensions/ERC4626.sol";
 import "../src/IVault.sol";
 
+contract MetaVaultHarness is MetaVault {
+    constructor(
+        address _owner,
+        ERC20 _CRVUSD
+    )
+        MetaVault(_owner, _CRVUSD)
+    {}
+
+    function depositIntoVault(uint256 vaultIdx, uint256 assets) external {
+        ERC20(CRVUSD).transferFrom(msg.sender, address(this), assets);
+        _depositIntoVault(vaultIdx, assets);
+    }
+
+    function __assets() external view returns (uint256[] memory) {
+        uint256[] memory assets = new uint256[](vaults.length);
+        for (uint256 i = 0; i < vaults.length; i++) {
+            uint256 vaultAssets = IVault(vaults[i].addr).convertToAssets(vaults[i].shares);
+            assets[i] = vaultAssets;
+        }
+        return assets;
+    }
+
+    function __percentages() external view returns (uint256[] memory) {
+        uint256[] memory assets = new uint256[](vaults.length);
+        uint256 sumAssets = 0;
+        for (uint256 i = 0; i < vaults.length; i++) {
+            uint256 vaultAssets = IVault(vaults[i].addr).convertToAssets(vaults[i].shares);
+            assets[i] = vaultAssets;
+            sumAssets += vaultAssets;
+        }
+
+        // reuse the array
+        uint256 sumPercentages = 0;
+        for (uint256 i = 0; i < vaults.length - 1; i++) {
+            uint256 percentage = (assets[i] * 10_000) / sumAssets;
+            assets[i] = percentage;
+            sumPercentages += percentage;
+        }
+        assets[vaults.length - 1] = 10_000 - sumPercentages;
+
+        return assets;
+    }
+}
+
 contract CounterTest is Test {
     address constant CRVUSD = 0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E;
 
@@ -17,7 +61,7 @@ contract CounterTest is Test {
     address constant pufETH_vault = 0xff467c6E827ebbEa64DA1ab0425021E6c89Fbe0d;
     address constant sFRAX_vault = 0xd0c183C9339e73D7c9146D48E1111d1FBEe2D6f9;
 
-    MetaVault mv;
+    MetaVaultHarness mv;
     IVault[] vaults;
     address alice;
     address owner;
@@ -36,7 +80,7 @@ contract CounterTest is Test {
 
         alice = makeAddr("alice");
         owner = makeAddr("owner");
-        mv = new MetaVault(owner, ERC20(CRVUSD));
+        mv = new MetaVaultHarness(owner, ERC20(CRVUSD));
         deal(CRVUSD, alice, type(uint256).max);
 
         // vaults.push(new MockVault(1e20, mockCrvUSD));
@@ -144,5 +188,33 @@ contract CounterTest is Test {
 
         assertEq(mv.totalAssets(), 0);
         assertEq(ERC20(CRVUSD).balanceOf(address(mv)), 0);
+    }
+
+    function test_rebalance() public {
+        vm.startPrank(alice);
+        assertEq(ERC20(CRVUSD).balanceOf(address(mv)), 0);
+
+        ERC20(CRVUSD).approve(address(mv), type(uint256).max);
+
+        mv.depositIntoVault(0, 1e5);
+
+        console.log("before rebalance");
+        uint256[] memory assets = mv.__assets();
+        uint256[] memory percentages = mv.__percentages();
+        for (uint256 i = 0; i < percentages.length; i++) {
+            console.log("vault %d assets: %e percentage: %d", i, assets[i], percentages[i]);
+        }
+
+        console.log();
+        vm.startPrank(owner);
+        mv.rebalance();
+        console.log();
+
+        console.log("after rebalance");
+        assets = mv.__assets();
+        percentages = mv.__percentages();
+        for (uint256 i = 0; i < percentages.length; i++) {
+            console.log("vault %d assets: %e percentage: %d", i, assets[i], percentages[i]);
+        }
     }
 }
