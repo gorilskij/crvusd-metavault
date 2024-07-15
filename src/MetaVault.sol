@@ -13,13 +13,11 @@ contract MetaVault is Ownable, ERC4626 {
 
     struct Vault {
         address addr;
-        bool enabled;
         uint256 target;
         uint256 shares;
     }
 
-    Vault[] vaults;
-    uint256 numEnabled = 0;
+    Vault[] public vaults;
 
     uint256 constant EPSILON = 200; // 2pp tolerance
 
@@ -36,94 +34,35 @@ contract MetaVault is Ownable, ERC4626 {
         CRVUSD = _CRVUSD;
     }
 
-    // TODO: rebalance when enabling or disabling a vault
-    function enableVault(address _vault, uint256 _target) external onlyOwner {
+    function addVault(address _addr) external onlyOwner {
         for (uint256 i = 0; i < vaults.length; i++) {
-            if (vaults[i].addr == _vault) {
-                if (!vaults[i].enabled) {
-                    vaults[i].enabled = true;
-                    vaults[i].target = _target;
-                    numEnabled++;
-                    CRVUSD.approve(_vault, type(uint256).max);
-                }
-                return;
-            }
+            require(_addr != vaults[i].addr, "address already exists");
         }
-        vaults.push(Vault(_vault, true, _target, 0));
-        numEnabled++;
-        CRVUSD.approve(_vault, type(uint256).max);
-    }
-
-    function disableVault(address _vault) external onlyOwner {
-        for (uint256 i = 0; i < vaults.length; i++) {
-            if (vaults[i].addr == _vault) {
-                if (vaults[i].enabled) {
-                    if (numEnabled == 0) {
-                        revert("would leave 0 vaults enabled");
-                    }
-
-                    vaults[i].enabled = false;
-                    numEnabled--;
-                    CRVUSD.approve(_vault, 0);
-                }
-                return;
-            }
-        }
-
-        revert("not found");
-    }
-
-    function getEnabledVaults() external view returns (uint256[] memory) {
-        uint256[] memory enabledVaults = new uint256[](vaults.length);
-        uint256 count = 0;
-        for (uint256 i = 0; i < vaults.length; i++) {
-            if (vaults[i].enabled) {
-                enabledVaults[count] = i;
-                count++;
-            }
-        }
-        uint256[] memory packed = new uint256[](count);
-        for (uint256 i = 0; i < count; i++) {
-            packed[i] = enabledVaults[i];
-        }
-        return packed;
+        vaults.push(Vault(_addr, 0, 0));
+        CRVUSD.approve(_addr, type(uint256).max);
     }
 
     // targets must contain the same number of elements as there are
     // enabled vaults and its values must add up to 10_000
-    function setTargets(
-        uint256[] calldata targets,
-        bool doRebalance
-    ) external onlyOwner {
-        uint256 ti = 0;
-        uint256 total = 0;
+    function setTargets(uint256[] calldata targets) external onlyOwner {
+        require(
+            targets.length == vaults.length,
+            "wrong number of targets provided"
+        );
+
+        uint256 totalPercentage = 0;
         for (uint256 i = 0; i < vaults.length; i++) {
-            if (vaults[i].enabled) {
-                if (ti > targets.length) {
-                    revert("too few targets provided");
-                }
-
-                vaults[i].target = targets[ti];
-                total += targets[ti];
-                ti++;
-            }
+            vaults[i].target = targets[i];
+            totalPercentage += targets[i];
         }
-        if (ti < targets.length) {
-            revert("too many targets provided");
-        }
-        if (total != 10_000) {
-            revert("targets do not add up to 10_000");
-        }
-
-        if (doRebalance) {
-            rebalance();
-        }
+        require(totalPercentage == 10_000, "targets do not add up to 10_000");
+        rebalance();
     }
 
     function totalAssets() public view override returns (uint256) {
         uint256 total = 0;
         for (uint256 i = 0; i < vaults.length; i++) {
-            if (vaults[i].enabled) {
+            if (vaults[i].target > 0) {
                 total += IVault(vaults[i].addr).maxWithdraw(address(this));
             }
         }
@@ -154,7 +93,7 @@ contract MetaVault is Ownable, ERC4626 {
     function _maxTotalWithdraw() public view returns (uint256) {
         uint256 assets = 0;
         for (uint256 i = 0; i < vaults.length; i++) {
-            if (vaults[i].enabled) {
+            if (vaults[i].target > 0) {
                 assets += IVault(vaults[i].addr).maxWithdraw(address(this));
             }
         }
@@ -221,7 +160,7 @@ contract MetaVault is Ownable, ERC4626 {
         uint256 maxMaxDeposit = 0;
         uint256 maxMaxDepositIdx = 0;
         for (uint256 i = 0; i < vaults.length; i++) {
-            if (vaults[i].enabled) {
+            if (vaults[i].target > 0) {
                 // TODO: use rounding instead of +1
                 uint256 maxAssetsAfterDeposit = ((vaults[i].target + EPSILON) *
                     totalAfterDepositing) /
@@ -250,7 +189,7 @@ contract MetaVault is Ownable, ERC4626 {
         }
 
         for (uint256 i = 0; i < vaults.length; i++) {
-            if (i != maxMaxDepositIdx && vaults[i].enabled) {
+            if (i != maxMaxDepositIdx && vaults[i].target > 0) {
                 depositIntoVault = Math.min(depositAmount, maxDepositAssets[i]);
                 shares = _depositIntoVault(i, depositIntoVault);
                 depositAmount -= depositIntoVault;
@@ -282,7 +221,7 @@ contract MetaVault is Ownable, ERC4626 {
         uint256 maxMaxWithdraw = 0;
         uint256 maxMaxWithdrawIdx = 0;
         for (uint256 i = 0; i < vaults.length; i++) {
-            if (vaults[i].enabled) {
+            if (vaults[i].target > 0) {
                 uint256 minAssetsAfterWithdrawal = ((vaults[i].target -
                     Math.min(vaults[i].target, EPSILON)) *
                     totalAfterWithdrawing) / 10_000;
@@ -327,7 +266,7 @@ contract MetaVault is Ownable, ERC4626 {
         }
 
         for (uint256 i = 0; i < vaults.length; i++) {
-            if (i != maxMaxWithdrawIdx && vaults[i].enabled) {
+            if (i != maxMaxWithdrawIdx && vaults[i].target > 0) {
                 redeemFromVault =
                     IVault(vaults[i].addr).convertToShares(withdrawAmount) +
                     1;
@@ -352,20 +291,16 @@ contract MetaVault is Ownable, ERC4626 {
         uint256 totalTaken = 0;
 
         for (uint256 i = 0; i < vaults.length; i++) {
-            if (vaults[i].enabled) {
-                uint256 targetAmount = (vaults[i].target * sumAssets) / 10_000;
+            uint256 targetAmount = (vaults[i].target * sumAssets) / 10_000;
 
-                if (assets[i] > targetAmount) {
-                    uint256 take = Math.min(
-                        assets[i] - targetAmount,
-                        IVault(vaults[i].addr).maxWithdraw(address(this))
-                    );
-                    _withdrawFromVault(i, take);
-                    totalTaken += take;
+            if (assets[i] > targetAmount) {
+                uint256 take = Math.min(
+                    assets[i] - targetAmount,
+                    IVault(vaults[i].addr).maxWithdraw(address(this))
+                );
+                _withdrawFromVault(i, take);
+                totalTaken += take;
 
-                    done[i] = true;
-                }
-            } else {
                 done[i] = true;
             }
         }

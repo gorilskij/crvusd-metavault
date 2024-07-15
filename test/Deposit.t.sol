@@ -101,11 +101,18 @@ contract CounterTest is Test {
         // vaults.push(IVault(WETH_vault));
         // vaults.push(IVault(sFRAX_vault));
 
-        uint256[3] memory weights = [uint256(2000), 3000, 5000];
         for (uint256 i = 0; i < vaults.length; i++) {
             vm.prank(owner);
-            mv.enableVault(address(vaults[i]), weights[i]);
+            mv.addVault(address(vaults[i]));
         }
+
+        uint256[] memory targets = new uint256[](vaults.length);
+        targets[0] = 2000;
+        targets[1] = 3000;
+        targets[2] = 5000;
+
+        vm.prank(owner);
+        mv.setTargets(targets);
     }
 
     function test_deposit() public {
