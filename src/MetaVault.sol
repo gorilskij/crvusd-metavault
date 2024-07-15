@@ -17,7 +17,12 @@ contract MetaVault is Ownable, ERC4626 {
         uint256 shares;
     }
 
-    Vault[] public vaults;
+    Vault[] vaults;
+
+    // TODO: make variable public
+    function getVaults() external view returns (Vault[] memory) {
+        return vaults;
+    }
 
     uint256 constant EPSILON = 200; // 2pp tolerance
 
@@ -25,13 +30,17 @@ contract MetaVault is Ownable, ERC4626 {
 
     constructor(
         address _owner,
-        ERC20 _CRVUSD
+        ERC20 _CRVUSD,
+        // must always have at least one enabled vault
+        address _firstVaultAddr
     )
         Ownable(_owner)
         ERC20("crvUSD Lending MetaVault", "metaCrvUSD")
         ERC4626(_CRVUSD)
     {
         CRVUSD = _CRVUSD;
+        vaults.push(Vault(_firstVaultAddr, 10_000, 0));
+        CRVUSD.approve(_firstVaultAddr, type(uint256).max);
     }
 
     function addVault(address _addr) external onlyOwner {
@@ -40,10 +49,9 @@ contract MetaVault is Ownable, ERC4626 {
         }
         vaults.push(Vault(_addr, 0, 0));
         CRVUSD.approve(_addr, type(uint256).max);
+        // TODO: ad-hoc approvals?
     }
 
-    // targets must contain the same number of elements as there are
-    // enabled vaults and its values must add up to 10_000
     function setTargets(uint256[] calldata targets) external onlyOwner {
         require(
             targets.length == vaults.length,
@@ -56,6 +64,7 @@ contract MetaVault is Ownable, ERC4626 {
             totalPercentage += targets[i];
         }
         require(totalPercentage == 10_000, "targets do not add up to 10_000");
+
         rebalance();
     }
 
@@ -207,14 +216,8 @@ contract MetaVault is Ownable, ERC4626 {
         uint256[] memory assets;
         uint256 totalAfterWithdrawing;
         (assets, totalAfterWithdrawing) = _currentAssets();
-
-        if (withdrawAmount <= totalAfterWithdrawing) {
-            totalAfterWithdrawing -= withdrawAmount;
-        } else {
-            revert(
-                "exceeded max withdrawal amount, this should have been caught earlier"
-            );
-        }
+        assert(withdrawAmount <= totalAfterWithdrawing);
+        totalAfterWithdrawing -= withdrawAmount;
 
         uint256[] memory maxRedeemShares = new uint256[](vaults.length);
         uint256[] memory maxWithdrawAssets = new uint256[](vaults.length);
@@ -282,6 +285,10 @@ contract MetaVault is Ownable, ERC4626 {
         }
     }
 
+    // does not skip disabled vaults (target == 0)
+    // this is to ensure that assets are removed from those vaults
+    // when their targets are set to 0, the extra cost is
+    // ok because this function is called rarely and by the owner
     function rebalance() public onlyOwner {
         uint256[] memory assets = new uint256[](vaults.length);
         uint256 sumAssets = 0;

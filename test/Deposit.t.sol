@@ -8,7 +8,11 @@ import {ERC4626} from "@oz/token/ERC20/extensions/ERC4626.sol";
 import "../src/IVault.sol";
 
 contract MetaVaultHarness is MetaVault {
-    constructor(address _owner, ERC20 _CRVUSD) MetaVault(_owner, _CRVUSD) {}
+    constructor(
+        address _owner,
+        ERC20 _CRVUSD,
+        address _firstVaultAddr
+    ) MetaVault(_owner, _CRVUSD, _firstVaultAddr) {}
 
     function __depositIntoVault(uint256 vaultIdx, uint256 assets) external {
         ERC20(CRVUSD).transferFrom(msg.sender, address(this), assets);
@@ -85,7 +89,6 @@ contract CounterTest is Test {
         bob = makeAddr("bob");
         charlie = makeAddr("charlie");
 
-        mv = new MetaVaultHarness(owner, ERC20(CRVUSD));
         deal(CRVUSD, alice, type(uint256).max);
         deal(CRVUSD, bob, type(uint256).max);
         deal(CRVUSD, charlie, type(uint256).max);
@@ -101,7 +104,9 @@ contract CounterTest is Test {
         // vaults.push(IVault(WETH_vault));
         // vaults.push(IVault(sFRAX_vault));
 
-        for (uint256 i = 0; i < vaults.length; i++) {
+        mv = new MetaVaultHarness(owner, ERC20(CRVUSD), address(vaults[0]));
+
+        for (uint256 i = 1; i < vaults.length; i++) {
             vm.prank(owner);
             mv.addVault(address(vaults[i]));
         }
@@ -146,7 +151,7 @@ contract CounterTest is Test {
 
         ERC20(CRVUSD).approve(address(mv), type(uint256).max);
 
-        uint256 shares = mv.deposit(1e5, alice);
+        mv.deposit(1e5, alice);
 
         console.log("==== deposit done ====");
         console.log("total assets: %e", mv.totalAssets());
@@ -178,7 +183,7 @@ contract CounterTest is Test {
 
         ERC20(CRVUSD).approve(address(mv), type(uint256).max);
 
-        uint256 shares = mv.deposit(1e5, alice);
+        mv.deposit(1e5, alice);
 
         console.log("==== deposit done ====");
         console.log("total assets: %e", mv.totalAssets());
