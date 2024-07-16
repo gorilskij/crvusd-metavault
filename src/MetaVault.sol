@@ -9,12 +9,12 @@ import {Test, console} from "forge-std/Test.sol";
 import {Math} from "@oz/utils/math/Math.sol";
 
 contract MetaVault is Ownable, ERC4626 {
-    ERC20 CRVUSD;
+    ERC20 public immutable CRVUSD;
 
     struct Vault {
         address addr;
-        uint256 target;
-        uint256 shares;
+        uint16 target; // [0, 10_000]
+        uint256 shares; // TODO: is uint240 enough for this?
     }
 
     Vault[] vaults;
@@ -24,9 +24,8 @@ contract MetaVault is Ownable, ERC4626 {
         return vaults;
     }
 
-    uint256 constant EPSILON = 200; // 2pp tolerance
-
-    // uint256 constant REBALANCE_EPSILON = 5; // 0.5pp tolerance
+    // TODO: setter
+    uint256 public EPSILON = 200; // 2pp tolerance
 
     constructor(
         address _owner,
@@ -44,7 +43,7 @@ contract MetaVault is Ownable, ERC4626 {
     }
 
     function addVault(address _addr) external onlyOwner {
-        for (uint256 i = 0; i < vaults.length; i++) {
+        for (uint256 i = 0; i < vaults.length; ++i) {
             require(_addr != vaults[i].addr, "address already exists");
         }
         vaults.push(Vault(_addr, 0, 0));
@@ -52,14 +51,14 @@ contract MetaVault is Ownable, ERC4626 {
         // TODO: ad-hoc approvals?
     }
 
-    function setTargets(uint256[] calldata targets) external onlyOwner {
+    function setTargets(uint16[] calldata targets) external onlyOwner {
         require(
             targets.length == vaults.length,
             "wrong number of targets provided"
         );
 
         uint256 totalPercentage = 0;
-        for (uint256 i = 0; i < vaults.length; i++) {
+        for (uint256 i = 0; i < vaults.length; ++i) {
             vaults[i].target = targets[i];
             totalPercentage += targets[i];
         }
@@ -70,7 +69,7 @@ contract MetaVault is Ownable, ERC4626 {
 
     function totalAssets() public view override returns (uint256) {
         uint256 total = 0;
-        for (uint256 i = 0; i < vaults.length; i++) {
+        for (uint256 i = 0; i < vaults.length; ++i) {
             if (vaults[i].target > 0) {
                 total += IVault(vaults[i].addr).maxWithdraw(address(this));
             }
@@ -101,7 +100,7 @@ contract MetaVault is Ownable, ERC4626 {
 
     function _maxTotalWithdraw() public view returns (uint256) {
         uint256 assets = 0;
-        for (uint256 i = 0; i < vaults.length; i++) {
+        for (uint256 i = 0; i < vaults.length; ++i) {
             if (vaults[i].target > 0) {
                 assets += IVault(vaults[i].addr).maxWithdraw(address(this));
             }
@@ -147,7 +146,7 @@ contract MetaVault is Ownable, ERC4626 {
     {
         uint256[] memory assets = new uint256[](vaults.length);
         uint256 sumAssets = 0;
-        for (uint256 i = 0; i < vaults.length; i++) {
+        for (uint256 i = 0; i < vaults.length; ++i) {
             uint256 vaultAssets = IVault(vaults[i].addr).convertToAssets(
                 vaults[i].shares
             );
@@ -168,7 +167,7 @@ contract MetaVault is Ownable, ERC4626 {
         uint256[] memory maxDepositAssets = new uint256[](vaults.length);
         uint256 maxMaxDeposit = 0;
         uint256 maxMaxDepositIdx = 0;
-        for (uint256 i = 0; i < vaults.length; i++) {
+        for (uint256 i = 0; i < vaults.length; ++i) {
             if (vaults[i].target > 0) {
                 // TODO: use rounding instead of +1
                 uint256 maxAssetsAfterDeposit = ((vaults[i].target + EPSILON) *
@@ -197,7 +196,7 @@ contract MetaVault is Ownable, ERC4626 {
             return;
         }
 
-        for (uint256 i = 0; i < vaults.length; i++) {
+        for (uint256 i = 0; i < vaults.length; ++i) {
             if (i != maxMaxDepositIdx && vaults[i].target > 0) {
                 depositIntoVault = Math.min(depositAmount, maxDepositAssets[i]);
                 shares = _depositIntoVault(i, depositIntoVault);
@@ -208,6 +207,16 @@ contract MetaVault is Ownable, ERC4626 {
                 }
             }
         }
+    }
+
+    function _performAllocateDeposit(
+        uint256 vaultIdx,
+        uint256 depositAmount,
+        uint256 maxDepositAmount
+    ) internal returns (uint256) {
+        uint256 depositIntoVault = Math.min(depositAmount, maxDepositAmount);
+        _depositIntoVault(vaultIdx, depositIntoVault);
+        return depositIntoVault;
     }
 
     function _deallocateWithdrawal(uint256 withdrawAmount) internal {
@@ -223,7 +232,7 @@ contract MetaVault is Ownable, ERC4626 {
         uint256[] memory maxWithdrawAssets = new uint256[](vaults.length);
         uint256 maxMaxWithdraw = 0;
         uint256 maxMaxWithdrawIdx = 0;
-        for (uint256 i = 0; i < vaults.length; i++) {
+        for (uint256 i = 0; i < vaults.length; ++i) {
             if (vaults[i].target > 0) {
                 uint256 minAssetsAfterWithdrawal = ((vaults[i].target -
                     Math.min(vaults[i].target, EPSILON)) *
@@ -268,7 +277,7 @@ contract MetaVault is Ownable, ERC4626 {
             return;
         }
 
-        for (uint256 i = 0; i < vaults.length; i++) {
+        for (uint256 i = 0; i < vaults.length; ++i) {
             if (i != maxMaxWithdrawIdx && vaults[i].target > 0) {
                 redeemFromVault =
                     IVault(vaults[i].addr).convertToShares(withdrawAmount) +
@@ -297,7 +306,7 @@ contract MetaVault is Ownable, ERC4626 {
         bool[] memory done = new bool[](vaults.length);
         uint256 totalTaken = 0;
 
-        for (uint256 i = 0; i < vaults.length; i++) {
+        for (uint256 i = 0; i < vaults.length; ++i) {
             uint256 targetAmount = (vaults[i].target * sumAssets) / 10_000;
 
             if (assets[i] > targetAmount) {
@@ -313,7 +322,7 @@ contract MetaVault is Ownable, ERC4626 {
         }
 
         uint256 lastGivenIdx = 0;
-        for (uint256 i = 0; i < vaults.length; i++) {
+        for (uint256 i = 0; i < vaults.length; ++i) {
             if (!done[i]) {
                 uint256 targetAmount = (vaults[i].target * sumAssets) / 10_000;
 

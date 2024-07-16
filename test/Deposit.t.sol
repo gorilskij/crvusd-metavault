@@ -100,9 +100,9 @@ contract CounterTest is Test {
         vaults.push(IVault(CRV_vault));
         vaults.push(IVault(USDe_vault));
         vaults.push(IVault(WBTC_vault));
-        // vaults.push(IVault(pufETH_vault));
-        // vaults.push(IVault(WETH_vault));
-        // vaults.push(IVault(sFRAX_vault));
+        vaults.push(IVault(pufETH_vault));
+        vaults.push(IVault(WETH_vault));
+        vaults.push(IVault(sFRAX_vault));
 
         mv = new MetaVaultHarness(owner, ERC20(CRVUSD), address(vaults[0]));
 
@@ -111,10 +111,13 @@ contract CounterTest is Test {
             mv.addVault(address(vaults[i]));
         }
 
-        uint256[] memory targets = new uint256[](vaults.length);
-        targets[0] = 2000;
-        targets[1] = 3000;
-        targets[2] = 5000;
+        uint16[] memory targets = new uint16[](vaults.length);
+        targets[0] = 1000;
+        targets[1] = 2000;
+        targets[2] = 3000;
+        targets[3] = 2000;
+        targets[4] = 500;
+        targets[5] = 1500;
 
         vm.prank(owner);
         mv.setTargets(targets);
@@ -247,6 +250,10 @@ contract CounterTest is Test {
         }
 
         // TODO: add assertions
+    }
+
+    function test_fullDeposit() public {
+        // deposit into a vault that already has ballast
     }
 
     function test_multiDepositWithdraw() public {
