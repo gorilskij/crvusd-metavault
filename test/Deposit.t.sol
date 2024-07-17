@@ -52,6 +52,17 @@ contract MetaVaultHarness is MetaVault {
 
         return assets;
     }
+
+    function publicCurrentAssets()
+        external
+        returns (uint256[] memory, uint256)
+    {
+        return _currentAssets();
+    }
+
+    function publicTestGas() public {
+        IVault(vaults[0].addr).convertToAssets(100);
+    }
 }
 
 contract CounterTest is Test {
@@ -64,8 +75,10 @@ contract CounterTest is Test {
     address constant pufETH_vault = 0xff467c6E827ebbEa64DA1ab0425021E6c89Fbe0d;
     address constant sFRAX_vault = 0xd0c183C9339e73D7c9146D48E1111d1FBEe2D6f9;
 
-    MetaVaultHarness mv;
     IVault[] vaults;
+
+    MetaVaultHarness mv;
+    MetaVaultHarness mvWithBallast;
 
     address owner;
     address alice;
@@ -73,6 +86,8 @@ contract CounterTest is Test {
     address charlie;
 
     function setUp() public {
+        // vm.startPrank(owner);
+
         // vm.createSelectFork("https://eth.llamarpc.com");
         vm.createSelectFork("wss://ethereum-rpc.publicnode.com");
 
@@ -89,13 +104,14 @@ contract CounterTest is Test {
         bob = makeAddr("bob");
         charlie = makeAddr("charlie");
 
+        deal(CRVUSD, owner, type(uint256).max);
         deal(CRVUSD, alice, type(uint256).max);
         deal(CRVUSD, bob, type(uint256).max);
         deal(CRVUSD, charlie, type(uint256).max);
 
-        // vaults.push(new MockVault(1e20, mockCrvUSD));
-        // vaults.push(new MockVault(1e20, mockCrvUSD));
-        // vaults.push(new MockVault(1e20, mockCrvUSD));
+        //
+        // ########## Set up mv ##########
+        //
 
         vaults.push(IVault(CRV_vault));
         vaults.push(IVault(USDe_vault));
@@ -121,6 +137,48 @@ contract CounterTest is Test {
 
         vm.prank(owner);
         mv.setTargets(targets);
+
+        //
+        // ########## Set up mv with ballast ##########
+        //
+
+        mvWithBallast = new MetaVaultHarness(
+            owner,
+            ERC20(CRVUSD),
+            address(vaults[0])
+        );
+
+        for (uint256 i = 1; i < vaults.length; i++) {
+            vm.prank(owner);
+            mvWithBallast.addVault(address(vaults[i]));
+        }
+
+        targets = new uint16[](vaults.length);
+        targets[0] = 200;
+        targets[1] = 300;
+        targets[2] = 500;
+        targets[3] = 2000;
+        targets[4] = 3000;
+        targets[5] = 4000;
+
+        vm.prank(owner);
+        mvWithBallast.setTargets(targets);
+        vm.prank(owner);
+        ERC20(CRVUSD).approve(address(mvWithBallast), type(uint256).max);
+        vm.prank(owner);
+        mvWithBallast.deposit(1e25, owner);
+
+        console.log(">>> %e", mvWithBallast.totalAssets());
+        for (uint256 i = 0; i < vaults.length; ++i) {
+            console.log(">> %d: %e", i, vaults[i].totalAssets());
+        }
+
+        // vm.stopPrank();
+    }
+
+    function test_gas() public {
+        mv.publicCurrentAssets();
+        // mv.publicTestGas();
     }
 
     function test_deposit() public {
@@ -252,8 +310,35 @@ contract CounterTest is Test {
         // TODO: add assertions
     }
 
-    function test_fullDeposit() public {
-        // deposit into a vault that already has ballast
+    function test_withBallastDeposit() public {
+        vm.startPrank(alice);
+        assertEq(ERC20(CRVUSD).balanceOf(address(mv)), 0);
+
+        ERC20(CRVUSD).approve(address(mvWithBallast), type(uint256).max);
+
+        console.log(
+            " pre-dep %e",
+            ERC20(CRVUSD).balanceOf(address(mvWithBallast))
+        );
+        mvWithBallast.deposit(1e18, alice);
+        console.log(
+            "post-dep %e",
+            ERC20(CRVUSD).balanceOf(address(mvWithBallast))
+        );
+
+        for (uint256 i = 0; i < vaults.length; i++) {
+            console.log(vaults[i].maxWithdraw(address(mvWithBallast)));
+        }
+
+        console.log("=====");
+
+        for (uint256 i = 0; i < vaults.length; i++) {
+            console.log(vaults[i].balanceOf(alice));
+        }
+
+        assertEq(mvWithBallast.totalAssets(), 1e18 - vaults.length);
+
+        assertEq(ERC20(CRVUSD).balanceOf(address(mvWithBallast)), 0);
     }
 
     function test_multiDepositWithdraw() public {

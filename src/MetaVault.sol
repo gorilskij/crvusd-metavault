@@ -14,7 +14,7 @@ contract MetaVault is Ownable, ERC4626 {
     struct Vault {
         address addr;
         uint16 target; // [0, 10_000]
-        uint256 shares; // TODO: is uint240 enough for this?
+        uint256 shares;
     }
 
     Vault[] vaults;
@@ -24,8 +24,42 @@ contract MetaVault is Ownable, ERC4626 {
         return vaults;
     }
 
+    uint256 lastUpdatedVault = 0;
+    uint256[] cachedCurrentAssets;
+    uint256 cachedSumAssets;
+
+    // one vault is updated at a time to save gas
+    function _currentAssets()
+        internal
+        view
+        returns (uint256[] memory, uint256)
+    {
+        uint256[] memory assets = new uint256[](vaults.length);
+        uint256 sumAssets = 0;
+        for (uint256 i = 0; i < vaults.length; ++i) {
+            uint256 vaultAssets = IVault(vaults[i].addr).convertToAssets(
+                vaults[i].shares
+            );
+            assets[i] = vaultAssets;
+            sumAssets += vaultAssets;
+        }
+        return (assets, sumAssets);
+    }
+
+    // function _currentAssets() internal returns (uint256[] memory, uint256) {
+    //     lastUpdatedVault = (lastUpdatedVault + 1) % vaults.length;
+
+    //     cachedSumAssets -= cachedCurrentAssets[lastUpdatedVault];
+    //     uint256 vaultAssets = IVault(vaults[lastUpdatedVault].addr)
+    //         .convertToAssets(vaults[lastUpdatedVault].shares);
+    //     cachedCurrentAssets[lastUpdatedVault] = vaultAssets;
+    //     cachedSumAssets += vaultAssets;
+
+    //     return (cachedCurrentAssets, cachedSumAssets);
+    // }
+
     // TODO: setter
-    uint256 public EPSILON = 200; // 2pp tolerance
+    uint256 public EPSILON = 200;
 
     constructor(
         address _owner,
@@ -39,7 +73,9 @@ contract MetaVault is Ownable, ERC4626 {
     {
         CRVUSD = _CRVUSD;
         vaults.push(Vault(_firstVaultAddr, 10_000, 0));
+        // TODO: ad-hoc approvals?
         CRVUSD.approve(_firstVaultAddr, type(uint256).max);
+        cachedCurrentAssets.push(0);
     }
 
     function addVault(address _addr) external onlyOwner {
@@ -47,8 +83,9 @@ contract MetaVault is Ownable, ERC4626 {
             require(_addr != vaults[i].addr, "address already exists");
         }
         vaults.push(Vault(_addr, 0, 0));
-        CRVUSD.approve(_addr, type(uint256).max);
         // TODO: ad-hoc approvals?
+        CRVUSD.approve(_addr, type(uint256).max);
+        cachedCurrentAssets.push(0);
     }
 
     function setTargets(uint16[] calldata targets) external onlyOwner {
@@ -118,6 +155,7 @@ contract MetaVault is Ownable, ERC4626 {
     ) internal returns (uint256) {
         uint256 shares = IVault(vaults[vaultIndex].addr).deposit(assets);
         vaults[vaultIndex].shares += shares;
+        // cachedCurrentAssets[vaultIndex] += assets;
         return shares;
     }
 
@@ -127,6 +165,7 @@ contract MetaVault is Ownable, ERC4626 {
     ) internal returns (uint256) {
         uint256 shares = IVault(vaults[vaultIndex].addr).withdraw(assets);
         vaults[vaultIndex].shares -= shares;
+        // cachedCurrentAssets[vaultIndex] -= Math.min(cachedCurrentAssets[vaultIndex], assets);
         return shares;
     }
 
@@ -137,23 +176,6 @@ contract MetaVault is Ownable, ERC4626 {
         uint256 assets = IVault(vaults[vaultIndex].addr).redeem(shares);
         vaults[vaultIndex].shares -= shares;
         return assets;
-    }
-
-    function _currentAssets()
-        internal
-        view
-        returns (uint256[] memory, uint256)
-    {
-        uint256[] memory assets = new uint256[](vaults.length);
-        uint256 sumAssets = 0;
-        for (uint256 i = 0; i < vaults.length; ++i) {
-            uint256 vaultAssets = IVault(vaults[i].addr).convertToAssets(
-                vaults[i].shares
-            );
-            assets[i] = vaultAssets;
-            sumAssets += vaultAssets;
-        }
-        return (assets, sumAssets);
     }
 
     function _allocateDeposit(uint256 depositAmount) internal {
@@ -180,6 +202,17 @@ contract MetaVault is Ownable, ERC4626 {
                     Math.min(maxAssetsAfterDeposit, assets[i]) +
                     1;
 
+                if (maxDeposit >= depositAmount) {
+                    console.log("!! early full deposit");
+                    _depositIntoVault(i, depositAmount);
+                    return;
+                }
+
+                console.log();
+                console.log("| vault %d", i);
+                console.log("| current %e", assets[i]);
+                console.log("| max dep %e", maxDeposit);
+
                 maxDepositAssets[i] = maxDeposit;
                 if (maxDeposit > maxMaxDeposit) {
                     maxMaxDeposit = maxDeposit;
@@ -188,25 +221,37 @@ contract MetaVault is Ownable, ERC4626 {
             }
         }
 
+        // _depositIntoVault(maxMaxDepositIdx, depositAmount);
+        // return;
+
+        uint8 touchedVaults = 1;
+
         uint256 depositIntoVault = Math.min(depositAmount, maxMaxDeposit);
-        uint256 shares = _depositIntoVault(maxMaxDepositIdx, depositIntoVault);
+        _depositIntoVault(maxMaxDepositIdx, depositIntoVault);
         depositAmount -= depositIntoVault;
 
         if (depositAmount == 0) {
+            console.log("touched vaults = %d", touchedVaults);
             return;
         }
 
         for (uint256 i = 0; i < vaults.length; ++i) {
             if (i != maxMaxDepositIdx && vaults[i].target > 0) {
+                touchedVaults++;
+
                 depositIntoVault = Math.min(depositAmount, maxDepositAssets[i]);
-                shares = _depositIntoVault(i, depositIntoVault);
+                _depositIntoVault(i, depositIntoVault);
                 depositAmount -= depositIntoVault;
+
+                console.log("> remaining: %e", depositAmount);
 
                 if (depositAmount == 0) {
                     break;
                 }
             }
         }
+
+        console.log("touched vaults = %d", touchedVaults);
     }
 
     function _performAllocateDeposit(
