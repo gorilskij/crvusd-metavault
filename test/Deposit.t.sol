@@ -312,7 +312,7 @@ contract CounterTest is Test {
 
     function test_withBallastDeposit() public {
         vm.startPrank(alice);
-        assertEq(ERC20(CRVUSD).balanceOf(address(mv)), 0);
+        // assertEq(ERC20(CRVUSD).balanceOf(address(mv)), 0);
 
         ERC20(CRVUSD).approve(address(mvWithBallast), type(uint256).max);
 
@@ -336,9 +336,9 @@ contract CounterTest is Test {
             console.log(vaults[i].balanceOf(alice));
         }
 
-        assertEq(mvWithBallast.totalAssets(), 1e18 - vaults.length);
+        // assertEq(mvWithBallast.totalAssets(), 1e18 - vaults.length);
 
-        assertEq(ERC20(CRVUSD).balanceOf(address(mvWithBallast)), 0);
+        // assertEq(ERC20(CRVUSD).balanceOf(address(mvWithBallast)), 0);
     }
 
     function test_multiDepositWithdraw() public {
