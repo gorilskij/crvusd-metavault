@@ -29,35 +29,35 @@ contract MetaVault is Ownable, ERC4626 {
     uint256 cachedSumAssets;
 
     // one vault is updated at a time to save gas
-    function _currentAssets()
-        internal
-        view
-        returns (uint256[] memory, uint256)
-    {
-        uint256[] memory assets = new uint256[](vaults.length);
-        uint256 sumAssets = 0;
-        for (uint256 i = 0; i < vaults.length; ++i) {
-            Vault memory vault = vaults[i];
-            uint256 vaultAssets = IVault(vault.addr).convertToAssets(
-                vault.shares
-            );
-            assets[i] = vaultAssets;
-            sumAssets += vaultAssets;
-        }
-        return (assets, sumAssets);
-    }
-
-    // function _currentAssets() internal returns (uint256[] memory, uint256) {
-    //     lastUpdatedVault = (lastUpdatedVault + 1) % vaults.length;
-
-    //     cachedSumAssets -= cachedCurrentAssets[lastUpdatedVault];
-    //     uint256 vaultAssets = IVault(vaults[lastUpdatedVault].addr)
-    //         .convertToAssets(vaults[lastUpdatedVault].shares);
-    //     cachedCurrentAssets[lastUpdatedVault] = vaultAssets;
-    //     cachedSumAssets += vaultAssets;
-
-    //     return (cachedCurrentAssets, cachedSumAssets);
+    // function _currentAssets()
+    //     internal
+    //     view
+    //     returns (uint256[] memory, uint256)
+    // {
+    //     uint256[] memory assets = new uint256[](vaults.length);
+    //     uint256 sumAssets = 0;
+    //     for (uint256 i = 0; i < vaults.length; ++i) {
+    //         Vault memory vault = vaults[i];
+    //         uint256 vaultAssets = IVault(vault.addr).convertToAssets(
+    //             vault.shares
+    //         );
+    //         assets[i] = vaultAssets;
+    //         sumAssets += vaultAssets;
+    //     }
+    //     return (assets, sumAssets);
     // }
+
+    function _currentAssets() internal returns (uint256[] memory, uint256) {
+        lastUpdatedVault = (lastUpdatedVault + 1) % vaults.length;
+
+        cachedSumAssets -= cachedCurrentAssets[lastUpdatedVault];
+        uint256 vaultAssets = IVault(vaults[lastUpdatedVault].addr)
+            .convertToAssets(vaults[lastUpdatedVault].shares);
+        cachedCurrentAssets[lastUpdatedVault] = vaultAssets;
+        cachedSumAssets += vaultAssets;
+
+        return (cachedCurrentAssets, cachedSumAssets);
+    }
 
     // TODO: setter
     uint256 public EPSILON = 200;
@@ -158,7 +158,7 @@ contract MetaVault is Ownable, ERC4626 {
     ) internal returns (uint256) {
         uint256 shares = IVault(vaults[vaultIndex].addr).deposit(assets);
         vaults[vaultIndex].shares += shares;
-        // cachedCurrentAssets[vaultIndex] += assets;
+        cachedCurrentAssets[vaultIndex] += assets;
         return shares;
     }
 
@@ -168,7 +168,10 @@ contract MetaVault is Ownable, ERC4626 {
     ) internal returns (uint256) {
         uint256 shares = IVault(vaults[vaultIndex].addr).withdraw(assets);
         vaults[vaultIndex].shares -= shares;
-        // cachedCurrentAssets[vaultIndex] -= Math.min(cachedCurrentAssets[vaultIndex], assets);
+        cachedCurrentAssets[vaultIndex] -= Math.min(
+            cachedCurrentAssets[vaultIndex],
+            assets
+        );
         return shares;
     }
 
@@ -178,6 +181,10 @@ contract MetaVault is Ownable, ERC4626 {
     ) internal returns (uint256) {
         uint256 assets = IVault(vaults[vaultIndex].addr).redeem(shares);
         vaults[vaultIndex].shares -= shares;
+        cachedCurrentAssets[vaultIndex] -= Math.min(
+            cachedCurrentAssets[vaultIndex],
+            assets
+        );
         return assets;
     }
 
