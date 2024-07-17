@@ -53,13 +53,6 @@ contract MetaVaultHarness is MetaVault {
         return assets;
     }
 
-    function publicCurrentAssets()
-        external
-        returns (uint256[] memory, uint256)
-    {
-        return _currentAssets();
-    }
-
     function publicTestGas() public {
         IVault(vaults[0].addr).convertToAssets(100);
     }
@@ -177,7 +170,7 @@ contract CounterTest is Test {
     }
 
     function test_gas() public {
-        mv.publicCurrentAssets();
+        // mv.publicCurrentAssets();
         // mv.publicTestGas();
     }
 
