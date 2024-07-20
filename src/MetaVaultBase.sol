@@ -4,12 +4,13 @@ pragma solidity ^0.8.13;
 import {IVault} from "./IVault.sol";
 import {IGauge} from "./IGauge.sol";
 import {Ownable} from "@oz/access/Ownable.sol";
+import {Ownable2Step} from "@oz/access/Ownable2Step.sol";
 import {ERC4626} from "@oz/token/ERC20/extensions/ERC4626.sol";
 import {ERC20} from "@oz/token/ERC20/ERC20.sol";
 import {Test, console} from "forge-std/Test.sol";
 import {Math} from "@oz/utils/math/Math.sol";
 
-contract MetaVaultBase is Ownable, ERC4626 {
+contract MetaVaultBase is Ownable2Step, ERC4626 {
     ERC20 public immutable CRVUSD;
 
     error InvalidArguments();
