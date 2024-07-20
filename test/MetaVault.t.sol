@@ -28,10 +28,7 @@ contract MetaVaultHarness is MetaVault {
     function __assets() external view returns (uint256[] memory) {
         uint256[] memory assets = new uint256[](vaults.length);
         for (uint256 i = 0; i < vaults.length; i++) {
-            uint256 vaultAssets = IVault(vaults[i].addr).convertToAssets(
-                vaults[i].shares
-            );
-            assets[i] = vaultAssets;
+            assets[i] = vaults[i].vault.maxWithdraw(address(this));
         }
         return assets;
     }
@@ -40,9 +37,7 @@ contract MetaVaultHarness is MetaVault {
         uint256[] memory assets = new uint256[](vaults.length);
         uint256 sumAssets = 0;
         for (uint256 i = 0; i < vaults.length; i++) {
-            uint256 vaultAssets = IVault(vaults[i].addr).convertToAssets(
-                vaults[i].shares
-            );
+            uint256 vaultAssets = vaults[i].vault.maxWithdraw(address(this));
             assets[i] = vaultAssets;
             sumAssets += vaultAssets;
         }
@@ -58,13 +53,9 @@ contract MetaVaultHarness is MetaVault {
 
         return assets;
     }
-
-    function publicTestGas() public {
-        IVault(vaults[0].addr).convertToAssets(100);
-    }
 }
 
-contract CounterTest is Test {
+contract MetaVaultTest is Test {
     address constant CRVUSD = 0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E;
 
     address constant CRV_vault = 0xCeA18a8752bb7e7817F9AE7565328FE415C0f2cA;
@@ -184,6 +175,8 @@ contract CounterTest is Test {
     }
 
     // TODO: test max deposits and max deviation
+
+    function test_ivault() public {}
 
     function test_deposit() public {
         vm.startPrank(alice);

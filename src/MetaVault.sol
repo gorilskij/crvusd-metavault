@@ -8,6 +8,10 @@ import {Test, console} from "forge-std/Test.sol";
 import {Math} from "@oz/utils/math/Math.sol";
 import {MetaVaultBase} from "./MetaVaultBase.sol";
 
+function floorSub(uint256 a, uint256 b) pure returns (uint256) {
+    return a - Math.min(a, b);
+}
+
 contract MetaVault is MetaVaultBase {
     error TooManyDeposits();
 
@@ -21,10 +25,19 @@ contract MetaVault is MetaVaultBase {
         maxDeviation = _maxDeviation;
     }
 
+    // TODO: override previewDeposit
+
     uint256 public maxTotalDeposits;
 
     function increaseMaxTotalDeposits(uint256 _delta) external onlyOwner {
         maxTotalDeposits += _delta;
+    }
+
+    function maxDeposit(
+        address
+    ) public view virtual override returns (uint256) {
+        // WARNING: this is exact iff cachedSumAssets is exact
+        return maxTotalDeposits - cachedSumAssets;
     }
 
     constructor(
@@ -42,8 +55,7 @@ contract MetaVault is MetaVaultBase {
         uint256 vaultIndex,
         uint256 assets
     ) internal returns (uint256) {
-        uint256 shares = IVault(vaults[vaultIndex].addr).deposit(assets);
-        vaults[vaultIndex].shares += shares;
+        uint256 shares = vaults[vaultIndex].vault.deposit(assets);
 
         cachedCurrentAssets[vaultIndex] += assets;
         cachedSumAssets += assets;
@@ -55,12 +67,8 @@ contract MetaVault is MetaVaultBase {
         uint256 vaultIndex,
         uint256 assets
     ) internal returns (uint256) {
-        uint256 shares = IVault(vaults[vaultIndex].addr).withdraw(assets);
+        uint256 shares = vaults[vaultIndex].vault.withdraw(assets);
         console.log("a");
-        vaults[vaultIndex].shares -= Math.min(
-            vaults[vaultIndex].shares,
-            shares
-        );
 
         uint256 subtractFromCache = Math.min(
             cachedCurrentAssets[vaultIndex],
@@ -73,23 +81,6 @@ contract MetaVault is MetaVaultBase {
 
         return shares;
     }
-
-    // function _redeemFromVault(
-    //     uint256 vaultIndex,
-    //     uint256 shares
-    // ) internal returns (uint256) {
-    //     uint256 assets = IVault(vaults[vaultIndex].addr).redeem(shares);
-    //     vaults[vaultIndex].shares -= shares;
-
-    //     uint256 subtractFromCache = Math.min(
-    //         cachedCurrentAssets[vaultIndex],
-    //         assets
-    //     );
-    //     cachedCurrentAssets[vaultIndex] -= subtractFromCache;
-    //     cachedSumAssets -= subtractFromCache;
-
-    //     return assets;
-    // }
 
     function _deposit(
         address caller,
@@ -134,29 +125,34 @@ contract MetaVault is MetaVaultBase {
         uint256 maxMaxDeposit = 0;
         uint256 maxMaxDepositIdx = 0;
         for (uint256 i = 0; i < numEnabledVaults; ++i) {
+            // Maximum assets this vault should have after we do the deposit
+            // to ensure that targets are respected. Adding 1 will overestimate
+            // the amount of assets we can deposit ensuring we will be able
+            // to spread the total deposit amount over all vaults in the worst
+            // case
             uint256 maxAssetsAfterDeposit = ((vaults[i].target + maxDeviation) *
                 totalAfterDepositing) /
                 10_000 +
                 1;
 
-            uint256 maxDeposit = maxAssetsAfterDeposit -
-                Math.min(maxAssetsAfterDeposit, cachedCurrentAssets[i]) +
-                1;
+            // Again, adding 1 ensures that we will leave enough space to deposit
+            // the full deposit amount in the worst case
+            uint256 maxDepositAmount = floorSub(
+                maxAssetsAfterDeposit,
+                cachedCurrentAssets[i]
+            ) + 1;
 
-            if (maxDeposit >= depositAmount) {
+            // If we can deposit just into this vault without violating the
+            // target constraints, we do that and exit early
+            if (depositAmount <= maxDepositAmount) {
                 console.log("!! early full deposit");
                 _depositIntoVault(i, depositAmount);
                 return;
             }
 
-            console.log();
-            console.log("| vault %d", i);
-            console.log("| current %e", cachedCurrentAssets[i]);
-            console.log("| max dep %e", maxDeposit);
-
-            maxDepositAssets[i] = maxDeposit;
-            if (maxDeposit > maxMaxDeposit) {
-                maxMaxDeposit = maxDeposit;
+            maxDepositAssets[i] = maxDepositAmount;
+            if (maxDepositAmount > maxMaxDeposit) {
+                maxMaxDeposit = maxDepositAmount;
                 maxMaxDepositIdx = i;
             }
         }
@@ -165,7 +161,8 @@ contract MetaVault is MetaVaultBase {
 
         uint8 touchedVaults = 1;
 
-        uint256 depositIntoVault = Math.min(depositAmount, maxMaxDeposit);
+        // We already know that maxMaxDeposit < depositAmount
+        uint256 depositIntoVault = maxMaxDeposit;
         _depositIntoVault(maxMaxDepositIdx, depositIntoVault);
         depositAmount -= depositIntoVault;
 
@@ -204,38 +201,30 @@ contract MetaVault is MetaVaultBase {
             Math.min(cachedSumAssets, withdrawAmount);
 
         console.log("calculating max redeems");
-        uint256[] memory maxRedeemShares = new uint256[](vaults.length);
+        // uint256[] memory maxRedeemShares = new uint256[](vaults.length);
         uint256[] memory maxWithdrawAssets = new uint256[](vaults.length);
         uint256 maxMaxWithdraw = 0;
         uint256 maxMaxWithdrawIdx = 0;
         for (uint256 i = 0; i < numEnabledVaults; ++i) {
             Vault memory vault = vaults[i];
 
-            uint256 minAssetsAfterWithdrawal = ((vault.target -
-                Math.min(vault.target, maxDeviation)) * totalAfterWithdrawing) /
-                10_000;
+            // Minimum assets this vault should have after we do the withdrawal
+            // to ensure that targets are respected. Flooring will overestimate
+            // the amount of assets we can withdraw ensuring we will be able to
+            // split the total withdrawal amount over all vaults in the worst
+            // case
+            uint256 minAssetsAfterWithdrawal = (floorSub(
+                vault.target,
+                maxDeviation
+            ) * totalAfterWithdrawing) / 10_000;
 
-            // uint256 minSharesAfterWithdrawal = IVault(vault.addr)
-            //     .convertToShares(minAssetsAfterWithdrawal);
-
-            // uint256 maxRedemption = vault.shares -
-            //     Math.min(vault.shares, minSharesAfterWithdrawal);
-            // maxRedeemShares[i] = maxRedemption;
-
-            // uint256 maxWithdrawal = IVault(vault.addr).maxWithdraw(
-            // address(this)
-            // );
-            // uint256 maxWithdrawal = IVault(vault.addr).convertToAssets(
-            //     maxRedemption
-            // );
-
-            // TODO: how to safely use cache here?
-            uint256 currentAssets = IVault(vault.addr).maxWithdraw(
-                address(this)
+            uint256 maxWithdrawal = floorSub(
+                vault.vault.maxWithdraw(address(this)),
+                minAssetsAfterWithdrawal
             );
-            uint256 maxWithdrawal = currentAssets -
-                Math.min(currentAssets, minAssetsAfterWithdrawal);
 
+            // If we can withdraw just from this vault without violating the
+            // target constraints, we do that and exit early
             if (withdrawAmount <= maxWithdrawal) {
                 _withdrawFromVault(i, withdrawAmount);
                 return;
@@ -250,22 +239,18 @@ contract MetaVault is MetaVaultBase {
 
         console.log("withdrawing max (vault %d)", maxMaxWithdrawIdx);
         console.log("- withdrawAmount: %e", withdrawAmount);
-        uint256 withdrawFromVault = Math.min(withdrawAmount, maxMaxWithdraw);
+        // We already know that maxMaxWithdraw < withdrawAmount
+        uint256 withdrawFromVault = maxMaxWithdraw;
         console.log("- withdrawFromVault: %e", withdrawFromVault);
         uint256 shares = _withdrawFromVault(
             maxMaxWithdrawIdx,
             withdrawFromVault
         );
         console.log("- shares: %e", shares);
-        vaults[maxMaxWithdrawIdx].shares -= Math.min(
-            vaults[maxMaxWithdrawIdx].shares,
-            shares
-        );
-        console.log("- remaining shares: %e", vaults[maxMaxWithdrawIdx].shares);
         withdrawAmount -= withdrawFromVault;
         console.log(
             "- remaining in vault: %e",
-            IVault(vaults[maxMaxWithdrawIdx].addr).balanceOf(address(this))
+            vaults[maxMaxWithdrawIdx].vault.balanceOf(address(this))
         );
         console.log("- remaining amount: %e", withdrawAmount);
 
@@ -312,15 +297,10 @@ contract MetaVault is MetaVaultBase {
                 console.log("- withdrawFromVault: %e", withdrawFromVault);
                 shares = _withdrawFromVault(i, withdrawFromVault);
                 console.log("- shares: %e", shares);
-                vaults[i].shares -= Math.min(vaults[i].shares, shares);
-                console.log(
-                    "- remaining shares: %e",
-                    vaults[maxMaxWithdrawIdx].shares
-                );
                 withdrawAmount -= withdrawFromVault;
                 console.log(
                     "- remaining in vault: %e",
-                    IVault(vaults[i].addr).balanceOf(address(this))
+                    vaults[i].vault.balanceOf(address(this))
                 );
                 console.log("- remaining amount: %e", withdrawAmount);
 

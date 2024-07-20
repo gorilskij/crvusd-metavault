@@ -17,9 +17,8 @@ contract MetaVaultBase is Ownable2Step, ERC4626 {
     error InvalidArguments();
 
     struct Vault {
-        address addr;
+        IVault vault;
         uint16 target; // [0, 10_000]
-        uint256 shares;
     }
 
     Vault[] public vaults; // all enabled vaults are at the front
@@ -29,36 +28,27 @@ contract MetaVaultBase is Ownable2Step, ERC4626 {
     uint256[] cachedCurrentAssets;
     uint256 cachedSumAssets;
 
-    // one vault is updated at a time to save gas
-    // function _currentAssets()
-    //     internal
-    //     view
-    //     returns (uint256[] memory, uint256)
-    // {
-    //     uint256[] memory assets = new uint256[](vaults.length);
-    //     uint256 sumAssets = 0;
-    //     for (uint256 i = 0; i < vaults.length; ++i) {
-    //         Vault memory vault = vaults[i];
-    //         uint256 vaultAssets = IVault(vault.addr).convertToAssets(
-    //             vault.shares
-    //         );
-    //         assets[i] = vaultAssets;
-    //         sumAssets += vaultAssets;
-    //     }
-    //     return (assets, sumAssets);
+    // function _updateCurrentAssets() internal {
+    //     lastUpdatedVault = (lastUpdatedVault + 1) % numEnabledVaults;
+
+    //     cachedSumAssets -= cachedCurrentAssets[lastUpdatedVault];
+    //     // uint256 vaultAssets = IVault(vaults[lastUpdatedVault].addr)
+    //     // .convertToAssets(vaults[lastUpdatedVault].shares);
+    //     uint256 vaultAssets = IVault(vaults[lastUpdatedVault].addr).maxWithdraw(
+    //         address(this)
+    //     );
+    //     cachedCurrentAssets[lastUpdatedVault] = vaultAssets;
+    //     cachedSumAssets += vaultAssets;
     // }
 
     function _updateCurrentAssets() internal {
-        lastUpdatedVault = (lastUpdatedVault + 1) % numEnabledVaults;
-
-        cachedSumAssets -= cachedCurrentAssets[lastUpdatedVault];
-        // uint256 vaultAssets = IVault(vaults[lastUpdatedVault].addr)
-        // .convertToAssets(vaults[lastUpdatedVault].shares);
-        uint256 vaultAssets = IVault(vaults[lastUpdatedVault].addr).maxWithdraw(
-            address(this)
-        );
-        cachedCurrentAssets[lastUpdatedVault] = vaultAssets;
-        cachedSumAssets += vaultAssets;
+        cachedSumAssets = 0;
+        for (uint256 i = 0; i < vaults.length; ++i) {
+            Vault memory vault = vaults[i];
+            uint256 vaultAssets = vault.vault.maxWithdraw(address(this));
+            cachedCurrentAssets[i] = vaultAssets;
+            cachedSumAssets += vaultAssets;
+        }
     }
 
     constructor(
@@ -73,7 +63,7 @@ contract MetaVaultBase is Ownable2Step, ERC4626 {
     {
         CRVUSD = IERC20(_CRVUSD);
 
-        vaults.push(Vault(_firstVaultAddr, 10_000, 0));
+        vaults.push(Vault(IVault(_firstVaultAddr), 10_000));
         // TODO: ad-hoc approvals?
         CRVUSD.approve(_firstVaultAddr, type(uint256).max);
         cachedCurrentAssets.push(0);
@@ -83,11 +73,11 @@ contract MetaVaultBase is Ownable2Step, ERC4626 {
 
     function addVault(address _addr) external onlyOwner {
         for (uint256 i = 0; i < vaults.length; ++i) {
-            if (_addr == vaults[i].addr) {
+            if (_addr == address(vaults[i].vault)) {
                 revert InvalidArguments();
             }
         }
-        vaults.push(Vault(_addr, 0, 0));
+        vaults.push(Vault(IVault(_addr), 0));
         // TODO: ad-hoc approvals?
         CRVUSD.approve(_addr, type(uint256).max);
         cachedCurrentAssets.push(0);
@@ -135,7 +125,7 @@ contract MetaVaultBase is Ownable2Step, ERC4626 {
     function totalAssets() public view override returns (uint256) {
         uint256 total = 0;
         for (uint256 i = 0; i < numEnabledVaults; ++i) {
-            total += IVault(vaults[i].addr).maxWithdraw(address(this));
+            total += vaults[i].vault.maxWithdraw(address(this));
         }
         return total;
     }
@@ -143,7 +133,7 @@ contract MetaVaultBase is Ownable2Step, ERC4626 {
     function _maxTotalWithdraw() public view returns (uint256) {
         uint256 assets = 0;
         for (uint256 i = 0; i < numEnabledVaults; ++i) {
-            assets += IVault(vaults[i].addr).maxWithdraw(address(this)) - 1;
+            assets += vaults[i].vault.maxWithdraw(address(this)) - 1;
         }
         return assets;
     }
@@ -170,11 +160,10 @@ contract MetaVaultBase is Ownable2Step, ERC4626 {
             if (cachedCurrentAssets[i] > targetAmount) {
                 uint256 take = Math.min(
                     cachedCurrentAssets[i] - targetAmount,
-                    IVault(vault.addr).maxWithdraw(address(this))
+                    vault.vault.maxWithdraw(address(this))
                 );
 
-                uint256 shares = IVault(vaults[i].addr).withdraw(take);
-                vaults[i].shares -= shares;
+                vaults[i].vault.withdraw(take);
 
                 totalTaken += take;
                 done[i] = true;
@@ -196,8 +185,7 @@ contract MetaVaultBase is Ownable2Step, ERC4626 {
                         totalTaken
                     );
 
-                    uint256 shares = IVault(vaults[i].addr).deposit(give);
-                    vaults[i].shares += shares;
+                    vaults[i].vault.deposit(give);
 
                     totalTaken -= give;
                     lastGivenIdx = i;
@@ -205,19 +193,14 @@ contract MetaVaultBase is Ownable2Step, ERC4626 {
             }
 
             // rebuild cache
-            uint256 vaultAssets = IVault(vaults[i].addr).maxWithdraw(
-                address(this)
-            );
+            uint256 vaultAssets = vaults[i].vault.maxWithdraw(address(this));
             cachedCurrentAssets[i] = vaultAssets;
             cachedSumAssets += vaultAssets;
         }
 
         // deposit whatever is remaining into the last vault
         if (totalTaken > 0) {
-            uint256 shares = IVault(vaults[lastGivenIdx].addr).deposit(
-                totalTaken
-            );
-            vaults[lastGivenIdx].shares += shares;
+            vaults[lastGivenIdx].vault.deposit(totalTaken);
         }
     }
 }
