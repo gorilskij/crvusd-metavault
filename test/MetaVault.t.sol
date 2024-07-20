@@ -42,33 +42,26 @@ contract MetaVaultHarness is MetaVault {
         _depositIntoVault(vaultIdx, assets);
     }
 
-    function __assets() external view returns (uint256[] memory) {
-        uint256[] memory assets = new uint256[](vaults.length);
-        for (uint256 i = 0; i < vaults.length; i++) {
-            assets[i] = vaults[i].vault.maxWithdraw(address(this));
-        }
-        return assets;
+    function __assets() external returns (uint256[] memory) {
+        _updateCurrentAssets();
+        return cachedCurrentAssets;
     }
 
-    function __percentages() external view returns (uint256[] memory) {
-        uint256[] memory assets = new uint256[](vaults.length);
-        uint256 sumAssets = 0;
-        for (uint256 i = 0; i < vaults.length; i++) {
-            uint256 vaultAssets = vaults[i].vault.maxWithdraw(address(this));
-            assets[i] = vaultAssets;
-            sumAssets += vaultAssets;
-        }
+    function __percentages() external returns (uint256[] memory) {
+        _updateCurrentAssets();
 
         // reuse the array
+        uint256[] memory percentages = new uint256[](vaults.length);
         uint256 sumPercentages = 0;
         for (uint256 i = 0; i < vaults.length - 1; i++) {
-            uint256 percentage = (assets[i] * 10_000) / sumAssets;
-            assets[i] = percentage;
+            uint256 percentage = (cachedCurrentAssets[i] * 10_000) /
+                cachedSumAssets;
+            percentages[i] = percentage;
             sumPercentages += percentage;
         }
-        assets[vaults.length - 1] = 10_000 - sumPercentages;
+        percentages[vaults.length - 1] = 10_000 - sumPercentages;
 
-        return assets;
+        return percentages;
     }
 }
 
@@ -97,6 +90,8 @@ contract MetaVaultTest is Test {
 
     IVault[] vaults;
     IGauge[] gauges;
+
+    uint16[] targets;
 
     MetaVaultHarness mv;
     MetaVaultHarness mvWithBallast;
@@ -174,13 +169,13 @@ contract MetaVaultTest is Test {
             mv.addVault(address(vaults[i]), address(gauges[i]));
         }
 
-        uint16[] memory targets = new uint16[](vaults.length);
-        targets[0] = 1000;
-        targets[1] = 2000;
-        targets[2] = 3000;
+        targets = new uint16[](vaults.length);
+        targets[0] = 200;
+        targets[1] = 300;
+        targets[2] = 500;
         targets[3] = 2000;
-        targets[4] = 500;
-        targets[5] = 1500;
+        targets[4] = 3000;
+        targets[5] = 4000;
 
         vm.prank(owner);
         mv.setTargets(targets);
@@ -203,14 +198,6 @@ contract MetaVaultTest is Test {
             mvWithBallast.addVault(address(vaults[i]), address(gauges[i]));
         }
 
-        targets = new uint16[](vaults.length);
-        targets[0] = 200;
-        targets[1] = 300;
-        targets[2] = 500;
-        targets[3] = 2000;
-        targets[4] = 3000;
-        targets[5] = 4000;
-
         vm.prank(owner);
         mvWithBallast.setTargets(targets);
         vm.prank(owner);
@@ -229,20 +216,43 @@ contract MetaVaultTest is Test {
     }
 
     // TODO: test max deposits and max deviation
+    // TODO: test rebalance empty
+
+    function test_rebalance() public {
+        vm.startPrank(alice);
+
+        ERC20(CRVUSD).approve(address(mv), type(uint256).max);
+
+        // deposit into the 0th vault without regard for targets
+        mv.__depositIntoVault(0, 1e5);
+
+        // the 0th vault contains 100% of the assets, all other vaults
+        // contain 0%
+        uint256[] memory percentages = mv.__percentages();
+        assertEq(percentages[0], 10_000);
+        for (uint256 i = 1; i < percentages.length; i++) {
+            assertEq(percentages[i], 0);
+        }
+
+        vm.stopPrank();
+
+        vm.prank(owner);
+        mv.rebalance();
+
+        // all percentages are close to their targets
+        percentages = mv.__percentages();
+        for (uint256 i = 0; i < percentages.length; i++) {
+            assertLt(absDiff(percentages[i], targets[i]), 10);
+        }
+    }
 
     function test_deposit() public {
         vm.startPrank(alice);
 
-        // assertEq(ERC20(CRVUSD).balanceOf(address(mv)), 0);
-        console.log(
-            "T balance of MV: %e",
-            ERC20(CRVUSD).balanceOf(address(mv))
-        );
+        assertEq(ERC20(CRVUSD).balanceOf(address(mv)), 0);
 
-        console.log("T approving");
         ERC20(CRVUSD).approve(address(mv), type(uint256).max);
 
-        console.log("T depositing");
         uint256 mvShares = mv.deposit(1e18, alice);
         // console.log("T resulting mv shares: %e", mvShares);
 
@@ -326,46 +336,6 @@ contract MetaVaultTest is Test {
         assertEq(ERC20(CRVUSD).balanceOf(address(mv)), 0);
 
         vm.stopPrank();
-    }
-
-    function test_rebalance() public {
-        vm.startPrank(alice);
-        assertEq(ERC20(CRVUSD).balanceOf(address(mv)), 0);
-
-        ERC20(CRVUSD).approve(address(mv), type(uint256).max);
-
-        mv.__depositIntoVault(0, 1e5);
-
-        console.log("before rebalance");
-        uint256[] memory assets = mv.__assets();
-        uint256[] memory percentages = mv.__percentages();
-        for (uint256 i = 0; i < percentages.length; i++) {
-            console.log(
-                "vault %d assets: %e percentage: %d",
-                i,
-                assets[i],
-                percentages[i]
-            );
-        }
-
-        console.log();
-        vm.startPrank(owner);
-        mv.rebalance();
-        console.log();
-
-        console.log("after rebalance");
-        assets = mv.__assets();
-        percentages = mv.__percentages();
-        for (uint256 i = 0; i < percentages.length; i++) {
-            console.log(
-                "vault %d assets: %e percentage: %d",
-                i,
-                assets[i],
-                percentages[i]
-            );
-        }
-
-        // TODO: add assertions
     }
 
     function test_withBallastDeposit() public {

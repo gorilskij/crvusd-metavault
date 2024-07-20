@@ -213,11 +213,13 @@ abstract contract MetaVaultBase is Ownable2Step, ERC4626 {
 
             uint256 targetAmount = (vault.target * cachedSumAssets) / 10_000;
 
+            console.log("& vault %d", i);
+            console.log("& current assets %e", cachedCurrentAssets[i]);
+            console.log("& target assets %e", targetAmount);
+
             if (cachedCurrentAssets[i] > targetAmount) {
-                uint256 take = Math.min(
-                    cachedCurrentAssets[i] - targetAmount,
-                    vault.vault.maxWithdraw(address(this))
-                );
+                uint256 take = cachedCurrentAssets[i] - targetAmount;
+                console.log("& take %e", take);
 
                 // vaults[i].vault.withdraw(take);
                 _withdrawFromVault(i, take);
@@ -241,6 +243,8 @@ abstract contract MetaVaultBase is Ownable2Step, ERC4626 {
                         targetAmount - cachedCurrentAssets[i],
                         totalTaken
                     );
+
+                    console.log("& vault %d give %e", i, give);
 
                     // vaults[i].vault.deposit(give);
                     _depositIntoVault(i, give);
