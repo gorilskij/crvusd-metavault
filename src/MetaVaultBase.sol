@@ -8,10 +8,10 @@ import {Ownable2Step} from "@oz/access/Ownable2Step.sol";
 import {ERC4626} from "@oz/token/ERC20/extensions/ERC4626.sol";
 import {ERC20} from "@oz/token/ERC20/ERC20.sol";
 import {IERC20} from "@oz/interfaces/IERC20.sol";
-import {Test, console} from "forge-std/Test.sol";
+import {console} from "forge-std/Test.sol";
 import {Math} from "@oz/utils/math/Math.sol";
 
-contract MetaVaultBase is Ownable2Step, ERC4626 {
+abstract contract MetaVaultBase is Ownable2Step, ERC4626 {
     IERC20 public immutable CRVUSD;
 
     error InvalidArguments();

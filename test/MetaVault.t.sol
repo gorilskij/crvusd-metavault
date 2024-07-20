@@ -301,35 +301,31 @@ contract MetaVaultTest is Test {
     }
 
     function test_redeem() public {
+        // deposit 1e18
+        test_deposit();
+
         vm.startPrank(alice);
-        assertEq(ERC20(CRVUSD).balanceOf(address(mv)), 0);
 
-        ERC20(CRVUSD).approve(address(mv), type(uint256).max);
-
-        mv.deposit(1e5, alice);
-
-        console.log("==== deposit done ====");
-        console.log("total assets: %e", mv.totalAssets());
-        uint256 maxWithdraw = mv.maxWithdraw(alice);
         uint256 maxRedeem = mv.maxRedeem(alice);
-        console.log("max withdraw assets %e", maxWithdraw);
-        console.log("max redeem shares %e", maxRedeem);
-        console.log("==== withdrawing ====");
+
+        // we can withdraw (almost) everything that we put in
+        assertLt(absDiff(maxRedeem, mv.totalSupply()), 10);
 
         mv.redeem(maxRedeem, alice, alice);
 
+        // all vaults are (almost) empty
         for (uint256 i = 0; i < vaults.length; i++) {
-            console.log("%e", vaults[i].maxWithdraw(address(mv)));
+            assertLt(absDiff(vaults[i].maxWithdraw(address(mv)), 0), 10);
         }
 
-        console.log("=====");
+        // the metavault is (almost) empty
+        assertLt(absDiff(mv.totalAssets(), 0), 10);
 
-        for (uint256 i = 0; i < vaults.length; i++) {
-            console.log(vaults[i].balanceOf(alice));
-        }
-
-        assertEq(mv.totalAssets(), 0);
+        // the metavault gave everything that it extracted from the
+        // sub-vaults to alice
         assertEq(ERC20(CRVUSD).balanceOf(address(mv)), 0);
+
+        vm.stopPrank();
     }
 
     function test_rebalance() public {

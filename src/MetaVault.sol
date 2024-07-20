@@ -13,8 +13,6 @@ function floorSub(uint256 a, uint256 b) pure returns (uint256) {
 }
 
 contract MetaVault is MetaVaultBase {
-    error TooManyDeposits();
-
     uint256 public maxDeviation;
 
     function setMaxDeviation(uint256 _maxDeviation) external onlyOwner {
@@ -33,9 +31,7 @@ contract MetaVault is MetaVaultBase {
         maxTotalDeposits += _delta;
     }
 
-    function maxDeposit(
-        address
-    ) public view virtual override returns (uint256) {
+    function maxDeposit(address) public view override returns (uint256) {
         // WARNING: this is exact iff cachedSumAssets is exact
         return maxTotalDeposits - cachedSumAssets;
     }
@@ -58,10 +54,6 @@ contract MetaVault is MetaVaultBase {
         uint256 assets,
         uint256 shares
     ) internal override {
-        if (cachedSumAssets + assets > maxTotalDeposits) {
-            revert TooManyDeposits();
-        }
-
         super._deposit(caller, receiver, assets, shares);
         // console.log("depositing %e", assets);
         _allocate(assets);
