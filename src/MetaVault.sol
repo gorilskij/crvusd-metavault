@@ -21,10 +21,18 @@ contract MetaVault is MetaVaultBase {
         maxDeviation = _maxDeviation;
     }
 
+    // TODO: override previewDeposit
+
     uint256 public maxTotalDeposits;
 
     function increaseMaxTotalDeposits(uint256 _delta) external onlyOwner {
         maxTotalDeposits += _delta;
+    }
+
+    function maxDeposit(
+        address
+    ) public view virtual override returns (uint256) {
+        revert("TODO");
     }
 
     constructor(

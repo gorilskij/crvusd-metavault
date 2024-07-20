@@ -185,6 +185,8 @@ contract CounterTest is Test {
 
     // TODO: test max deposits and max deviation
 
+    function test_ivault() public {}
+
     function test_deposit() public {
         vm.startPrank(alice);
         assertEq(ERC20(CRVUSD).balanceOf(address(mv)), 0);
