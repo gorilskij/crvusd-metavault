@@ -3,18 +3,84 @@ pragma solidity ^0.8.13;
 
 import {IVault} from "./IVault.sol";
 import {Ownable} from "@oz/access/Ownable.sol";
-import {ERC4626} from "@oz/token/ERC20/extensions/ERC4626.sol";
 import {ERC20} from "@oz/token/ERC20/ERC20.sol";
 import {Test, console} from "forge-std/Test.sol";
 import {Math} from "@oz/utils/math/Math.sol";
 import {MetaVaultBase} from "./MetaVaultBase.sol";
 
 contract MetaVault is MetaVaultBase {
+    uint256 public maxDeviation;
+
+    function setMaxDeviation(uint256 _maxDeviation) external onlyOwner {
+        require(100 <= _maxDeviation);
+        require(_maxDeviation <= 5000);
+
+        maxDeviation = _maxDeviation;
+    }
+
+    uint256 public maxTotalDeposits;
+
+    function increaseMaxTotalDeposits(uint256 _delta) external onlyOwner {
+        maxTotalDeposits += _delta;
+    }
+
     constructor(
         address _owner,
         ERC20 _CRVUSD,
-        address _firstVaultAddr
-    ) MetaVaultBase(_owner, _CRVUSD, _firstVaultAddr) {}
+        address _firstVaultAddr,
+        uint256 _maxDeviation,
+        uint256 _maxDeposits
+    ) MetaVaultBase(_owner, _CRVUSD, _firstVaultAddr) {
+        maxDeviation = _maxDeviation;
+        maxTotalDeposits = _maxDeposits;
+    }
+
+    function _depositIntoVault(
+        uint256 vaultIndex,
+        uint256 assets
+    ) internal returns (uint256) {
+        uint256 shares = IVault(vaults[vaultIndex].addr).deposit(assets);
+        vaults[vaultIndex].shares += shares;
+
+        cachedCurrentAssets[vaultIndex] += assets;
+        cachedSumAssets += assets;
+
+        return shares;
+    }
+
+    function _withdrawFromVault(
+        uint256 vaultIndex,
+        uint256 assets
+    ) internal returns (uint256) {
+        uint256 shares = IVault(vaults[vaultIndex].addr).withdraw(assets);
+        vaults[vaultIndex].shares -= shares;
+
+        uint256 subtractFromCache = Math.min(
+            cachedCurrentAssets[vaultIndex],
+            assets
+        );
+        cachedCurrentAssets[vaultIndex] -= subtractFromCache;
+        cachedSumAssets -= subtractFromCache;
+
+        return shares;
+    }
+
+    function _redeemFromVault(
+        uint256 vaultIndex,
+        uint256 shares
+    ) internal returns (uint256) {
+        uint256 assets = IVault(vaults[vaultIndex].addr).redeem(shares);
+        vaults[vaultIndex].shares -= shares;
+
+        uint256 subtractFromCache = Math.min(
+            cachedCurrentAssets[vaultIndex],
+            assets
+        );
+        cachedCurrentAssets[vaultIndex] -= subtractFromCache;
+        cachedSumAssets -= subtractFromCache;
+
+        return assets;
+    }
 
     function _deposit(
         address caller,
@@ -22,6 +88,11 @@ contract MetaVault is MetaVaultBase {
         uint256 assets,
         uint256 shares
     ) internal override {
+        require(
+            cachedSumAssets + assets <= maxTotalDeposits,
+            "deposit would exceed max deposit limit"
+        );
+
         super._deposit(caller, receiver, assets, shares);
         // console.log("depositing %e", assets);
         _allocateDeposit(assets);
@@ -52,7 +123,7 @@ contract MetaVault is MetaVaultBase {
         uint256 maxMaxDeposit = 0;
         uint256 maxMaxDepositIdx = 0;
         for (uint256 i = 0; i < numEnabledVaults; ++i) {
-            uint256 maxAssetsAfterDeposit = ((vaults[i].target + EPSILON) *
+            uint256 maxAssetsAfterDeposit = ((vaults[i].target + maxDeviation) *
                 totalAfterDepositing) /
                 10_000 +
                 1;
@@ -126,7 +197,7 @@ contract MetaVault is MetaVaultBase {
             Vault memory vault = vaults[i];
 
             uint256 minAssetsAfterWithdrawal = ((vault.target -
-                Math.min(vault.target, EPSILON)) * totalAfterWithdrawing) /
+                Math.min(vault.target, maxDeviation)) * totalAfterWithdrawing) /
                 10_000;
 
             uint256 minSharesAfterWithdrawal = IVault(vault.addr)

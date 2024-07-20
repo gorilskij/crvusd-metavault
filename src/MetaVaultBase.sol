@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {IVault} from "./IVault.sol";
+import {IGauge} from "./IGauge.sol";
 import {Ownable} from "@oz/access/Ownable.sol";
 import {ERC4626} from "@oz/token/ERC20/extensions/ERC4626.sol";
 import {ERC20} from "@oz/token/ERC20/ERC20.sol";
@@ -17,13 +18,8 @@ contract MetaVaultBase is Ownable, ERC4626 {
         uint256 shares;
     }
 
-    Vault[] vaults; // all enabled vaults are at the front
+    Vault[] public vaults; // all enabled vaults are at the front
     uint256 numEnabledVaults;
-
-    // TODO: make variable public
-    function getVaults() external view returns (Vault[] memory) {
-        return vaults;
-    }
 
     uint256 lastUpdatedVault = 0;
     uint256[] cachedCurrentAssets;
@@ -52,14 +48,14 @@ contract MetaVaultBase is Ownable, ERC4626 {
         lastUpdatedVault = (lastUpdatedVault + 1) % numEnabledVaults;
 
         cachedSumAssets -= cachedCurrentAssets[lastUpdatedVault];
-        uint256 vaultAssets = IVault(vaults[lastUpdatedVault].addr)
-            .convertToAssets(vaults[lastUpdatedVault].shares);
+        // uint256 vaultAssets = IVault(vaults[lastUpdatedVault].addr)
+        // .convertToAssets(vaults[lastUpdatedVault].shares);
+        uint256 vaultAssets = IVault(vaults[lastUpdatedVault].addr).maxWithdraw(
+            address(this)
+        );
         cachedCurrentAssets[lastUpdatedVault] = vaultAssets;
         cachedSumAssets += vaultAssets;
     }
-
-    // TODO: setter
-    uint256 public EPSILON = 200;
 
     constructor(
         address _owner,
@@ -72,6 +68,7 @@ contract MetaVaultBase is Ownable, ERC4626 {
         ERC4626(_CRVUSD)
     {
         CRVUSD = _CRVUSD;
+
         vaults.push(Vault(_firstVaultAddr, 10_000, 0));
         // TODO: ad-hoc approvals?
         CRVUSD.approve(_firstVaultAddr, type(uint256).max);
@@ -146,57 +143,6 @@ contract MetaVaultBase is Ownable, ERC4626 {
         return Math.min(super.maxWithdraw(owner), _maxTotalWithdraw());
     }
 
-    function _depositIntoVault(
-        uint256 vaultIndex,
-        uint256 assets
-    ) internal returns (uint256) {
-        uint256 shares = IVault(vaults[vaultIndex].addr).deposit(assets);
-        vaults[vaultIndex].shares += shares;
-
-        cachedCurrentAssets[vaultIndex] += assets;
-        cachedSumAssets += assets;
-
-        return shares;
-    }
-
-    function _withdrawFromVault(
-        uint256 vaultIndex,
-        uint256 assets
-    ) internal returns (uint256) {
-        uint256 shares = IVault(vaults[vaultIndex].addr).withdraw(assets);
-        vaults[vaultIndex].shares -= shares;
-
-        uint256 subtractFromCache = Math.min(
-            cachedCurrentAssets[vaultIndex],
-            assets
-        );
-        cachedCurrentAssets[vaultIndex] -= subtractFromCache;
-        cachedSumAssets -= subtractFromCache;
-
-        return shares;
-    }
-
-    function _redeemFromVault(
-        uint256 vaultIndex,
-        uint256 shares
-    ) internal returns (uint256) {
-        uint256 assets = IVault(vaults[vaultIndex].addr).redeem(shares);
-        vaults[vaultIndex].shares -= shares;
-
-        uint256 subtractFromCache = Math.min(
-            cachedCurrentAssets[vaultIndex],
-            assets
-        );
-        cachedCurrentAssets[vaultIndex] -= subtractFromCache;
-        cachedSumAssets -= subtractFromCache;
-
-        return assets;
-    }
-
-    // TODO: don't use _deposit utility functions, instead
-    //       update the whole cache in this function
-    //       - move utility functions to MetaVault
-    //
     // does not skip disabled vaults (target == 0)
     // this is to ensure that assets are removed from those vaults
     // when their targets are set to 0, the extra cost is
@@ -217,12 +163,17 @@ contract MetaVaultBase is Ownable, ERC4626 {
                     cachedCurrentAssets[i] - targetAmount,
                     IVault(vault.addr).maxWithdraw(address(this))
                 );
-                _withdrawFromVault(i, take);
-                totalTaken += take;
 
+                uint256 shares = IVault(vaults[i].addr).withdraw(take);
+                vaults[i].shares -= shares;
+
+                totalTaken += take;
                 done[i] = true;
             }
         }
+
+        // clear cache
+        cachedSumAssets = 0;
 
         uint256 lastGivenIdx = 0;
         for (uint256 i = 0; i < vaults.length; ++i) {
@@ -235,15 +186,29 @@ contract MetaVaultBase is Ownable, ERC4626 {
                         targetAmount - cachedCurrentAssets[i],
                         totalTaken
                     );
-                    _depositIntoVault(i, give);
+
+                    uint256 shares = IVault(vaults[i].addr).deposit(give);
+                    vaults[i].shares += shares;
+
                     totalTaken -= give;
                     lastGivenIdx = i;
                 }
             }
+
+            // rebuild cache
+            uint256 vaultAssets = IVault(vaults[i].addr).maxWithdraw(
+                address(this)
+            );
+            cachedCurrentAssets[i] = vaultAssets;
+            cachedSumAssets += vaultAssets;
         }
 
+        // deposit whatever is remaining into the last vault
         if (totalTaken > 0) {
-            _depositIntoVault(lastGivenIdx, totalTaken);
+            uint256 shares = IVault(vaults[lastGivenIdx].addr).deposit(
+                totalTaken
+            );
+            vaults[lastGivenIdx].shares += shares;
         }
     }
 }

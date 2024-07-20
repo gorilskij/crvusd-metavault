@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.4;
 
-interface LiquidityGaugeV6 {
+interface IGauge {
     event ApplyOwnership(address admin);
     event Approval(
         address indexed _owner,
