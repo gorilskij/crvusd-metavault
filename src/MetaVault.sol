@@ -153,13 +153,8 @@ contract MetaVault is MetaVaultBase {
                 ++touchedVaults;
 
                 depositIntoVault = Math.min(depositAmount, maxDepositAssets[i]);
-                console.log(
-                    "$ deposit %e into vault %d",
-                    depositIntoVault,
-                    maxMaxDepositIdx
-                );
+                console.log("$ deposit %e into vault %d", depositIntoVault, i);
                 _depositIntoVault(i, depositIntoVault);
-                console.log("$ done");
                 depositAmount -= depositIntoVault;
                 console.log("$ remaining to deposit: %d", depositAmount);
 

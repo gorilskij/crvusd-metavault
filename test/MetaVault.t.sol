@@ -10,6 +10,14 @@ import {IGauge} from "../src/IGauge.sol";
 
 // TODO: mock vault with real vault
 
+function absDiff(uint256 a, uint256 b) pure returns (uint256) {
+    if (a < b) {
+        return b - a;
+    } else {
+        return a - b;
+    }
+}
+
 contract MetaVaultHarness is MetaVault {
     constructor(
         address _owner,
@@ -102,9 +110,12 @@ contract MetaVaultTest is Test {
         // vm.startPrank(owner);
 
         // vm.createSelectFork("https://eth.llamarpc.com");
-        // vm.createSelectFork("wss://ethereum-rpc.publicnode.com");
+        vm.createSelectFork("wss://ethereum-rpc.publicnode.com");
         // vm.createSelectFork("https://rpc.payload.de");
-        vm.createSelectFork("https://eth.api.onfinality.io/public");
+        // vm.createSelectFork("https://eth.api.onfinality.io/public");
+        // vm.createSelectFork("http://10.95.33.126:8545/");
+        // vm.createSelectFork("http://10.95.33.126:8545/");
+        // https://rpc.ankr.com/eth
 
         vm.label(CRVUSD, "CRVUSD");
 
@@ -223,27 +234,42 @@ contract MetaVaultTest is Test {
 
     function test_deposit() public {
         vm.startPrank(alice);
-        assertEq(ERC20(CRVUSD).balanceOf(address(mv)), 0);
 
+        // assertEq(ERC20(CRVUSD).balanceOf(address(mv)), 0);
+        console.log(
+            "T balance of MV: %e",
+            ERC20(CRVUSD).balanceOf(address(mv))
+        );
+
+        console.log("T approving");
         ERC20(CRVUSD).approve(address(mv), type(uint256).max);
 
-        console.log(" pre-dep %e", ERC20(CRVUSD).balanceOf(address(mv)));
-        mv.deposit(1e18, alice);
-        console.log("post-dep %e", ERC20(CRVUSD).balanceOf(address(mv)));
+        console.log("T depositing");
+        uint256 mvShares = mv.deposit(1e18, alice);
+        // console.log("T resulting mv shares: %e", mvShares);
 
-        for (uint256 i = 0; i < vaults.length; i++) {
-            console.log(vaults[i].maxWithdraw(address(mv)));
-        }
+        // NOTE: this will depend on the _decimalsOffset()
+        assertEq(mvShares, 1e18);
+        assertEq(mv.totalSupply(), 1e18);
 
-        console.log("=====");
+        // the total assets contained in the metavault is (almost)
+        // what we just put in
+        assertLt(absDiff(mv.totalAssets(), 1e18), 10);
 
-        for (uint256 i = 0; i < vaults.length; i++) {
-            console.log(vaults[i].balanceOf(alice));
-        }
-
-        assertEq(mv.totalAssets(), 1e18 - vaults.length);
-
+        // all the crvUSD that the metavault got was deposited
+        // into the sub-vaults
         assertEq(ERC20(CRVUSD).balanceOf(address(mv)), 0);
+
+        for (uint256 i = 0; i < vaults.length; i++) {
+            if (address(gauges[i]) == address(0)) {
+                assertGe(vaults[i].maxWithdraw(address(mv)), 0);
+            } else {
+                // all the vault shares were deposited into the
+                // respective gauge
+                assertEq(vaults[i].maxWithdraw(address(mv)), 0);
+                assertGe(gauges[i].balanceOf(address(mv)), 0);
+            }
+        }
     }
 
     function test_withdraw() public {

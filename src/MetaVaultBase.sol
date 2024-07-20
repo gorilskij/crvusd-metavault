@@ -97,7 +97,11 @@ contract MetaVaultBase is Ownable2Step, ERC4626 {
         CRVUSD.approve(_vaultAddr, type(uint256).max);
         cachedCurrentAssets.push(0);
 
-        IVault(_vaultAddr).approve(_gaugeAddr, type(uint256).max);
+        IVault(_vaultAddr).approve(_gaugeAddr, 1e40);
+    }
+
+    function _hasGauge(uint256 vaultIdx) internal view returns (bool) {
+        return address(vaults[vaultIdx].gauge) != address(0);
     }
 
     function setTargets(uint16[] calldata targets) external onlyOwner {
@@ -144,21 +148,15 @@ contract MetaVaultBase is Ownable2Step, ERC4626 {
     function totalAssets() public view override returns (uint256) {
         uint256 total = 0;
         for (uint256 i = 0; i < numEnabledVaults; ++i) {
-            total += vaults[i].vault.maxWithdraw(address(this));
+            if (_hasGauge(i)) {
+                total += vaults[i].vault.convertToAssets(
+                    vaults[i].gauge.balanceOf(address(this))
+                );
+            } else {
+                total += vaults[i].vault.maxWithdraw(address(this));
+            }
         }
         return total;
-    }
-
-    function _maxTotalWithdraw() public view returns (uint256) {
-        uint256 assets = 0;
-        for (uint256 i = 0; i < numEnabledVaults; ++i) {
-            assets += vaults[i].vault.maxWithdraw(address(this)) - 1;
-        }
-        return assets;
-    }
-
-    function maxWithdraw(address owner) public view override returns (uint256) {
-        return Math.min(super.maxWithdraw(owner), _maxTotalWithdraw());
     }
 
     function _depositIntoVault(
