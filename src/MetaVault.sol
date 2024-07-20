@@ -97,7 +97,7 @@ contract MetaVault is MetaVaultBase {
 
         super._deposit(caller, receiver, assets, shares);
         // console.log("depositing %e", assets);
-        _allocateDeposit(assets);
+        _allocate(assets);
     }
 
     function _withdraw(
@@ -108,11 +108,11 @@ contract MetaVault is MetaVaultBase {
         uint256 shares
     ) internal override {
         console.log("withdrawing %e", assets);
-        _deallocateWithdrawal(assets);
+        _deallocate(assets);
         super._withdraw(caller, receiver, owner, assets, shares);
     }
 
-    function _allocateDeposit(uint256 depositAmount) internal {
+    function _allocate(uint256 depositAmount) internal {
         if (depositAmount == 0) {
             revert InvalidArguments();
         }
@@ -187,7 +187,7 @@ contract MetaVault is MetaVaultBase {
         console.log("touched vaults = %d", touchedVaults);
     }
 
-    function _deallocateWithdrawal(uint256 withdrawAmount) internal {
+    function _deallocate(uint256 withdrawAmount) internal {
         if (withdrawAmount == 0) {
             revert InvalidArguments();
         }
