@@ -43,43 +43,13 @@ contract MetaVault is MetaVaultBase {
     constructor(
         address _owner,
         address _CRVUSD,
-        address _firstVaultAddr,
         uint256 _maxDeviation,
-        uint256 _maxDeposits
-    ) MetaVaultBase(_owner, _CRVUSD, _firstVaultAddr) {
+        uint256 _maxDeposits,
+        address _firstVaultAddr,
+        address _firstGaugeAddr
+    ) MetaVaultBase(_owner, _CRVUSD, _firstVaultAddr, _firstGaugeAddr) {
         maxDeviation = _maxDeviation;
         maxTotalDeposits = _maxDeposits;
-    }
-
-    function _depositIntoVault(
-        uint256 vaultIndex,
-        uint256 assets
-    ) internal returns (uint256) {
-        uint256 shares = vaults[vaultIndex].vault.deposit(assets);
-
-        cachedCurrentAssets[vaultIndex] += assets;
-        cachedSumAssets += assets;
-
-        return shares;
-    }
-
-    function _withdrawFromVault(
-        uint256 vaultIndex,
-        uint256 assets
-    ) internal returns (uint256) {
-        uint256 shares = vaults[vaultIndex].vault.withdraw(assets);
-        console.log("a");
-
-        uint256 subtractFromCache = Math.min(
-            cachedCurrentAssets[vaultIndex],
-            assets
-        );
-        console.log("b");
-        cachedCurrentAssets[vaultIndex] -= subtractFromCache;
-        console.log("c");
-        cachedSumAssets -= subtractFromCache;
-
-        return shares;
     }
 
     function _deposit(
@@ -163,8 +133,15 @@ contract MetaVault is MetaVaultBase {
 
         // We already know that maxMaxDeposit < depositAmount
         uint256 depositIntoVault = maxMaxDeposit;
+        console.log(
+            "$ deposit %e into vault %d",
+            depositIntoVault,
+            maxMaxDepositIdx
+        );
         _depositIntoVault(maxMaxDepositIdx, depositIntoVault);
+        console.log("$ done");
         depositAmount -= depositIntoVault;
+        console.log("$ remaining to deposit: %d", depositAmount);
 
         if (depositAmount == 0) {
             console.log("touched vaults = %d", touchedVaults);
@@ -176,10 +153,15 @@ contract MetaVault is MetaVaultBase {
                 ++touchedVaults;
 
                 depositIntoVault = Math.min(depositAmount, maxDepositAssets[i]);
+                console.log(
+                    "$ deposit %e into vault %d",
+                    depositIntoVault,
+                    maxMaxDepositIdx
+                );
                 _depositIntoVault(i, depositIntoVault);
+                console.log("$ done");
                 depositAmount -= depositIntoVault;
-
-                console.log("> remaining: %e", depositAmount);
+                console.log("$ remaining to deposit: %d", depositAmount);
 
                 if (depositAmount == 0) {
                     break;

@@ -5,7 +5,8 @@ import {Test, console} from "forge-std/Test.sol";
 import {MetaVault} from "../src/MetaVault.sol";
 import {ERC20} from "@oz/token/ERC20/ERC20.sol";
 import {ERC4626} from "@oz/token/ERC20/extensions/ERC4626.sol";
-import "../src/IVault.sol";
+import {IVault} from "../src/IVault.sol";
+import {IGauge} from "../src/IGauge.sol";
 
 // TODO: mock vault with real vault
 
@@ -13,11 +14,19 @@ contract MetaVaultHarness is MetaVault {
     constructor(
         address _owner,
         address _CRVUSD,
-        address _firstVaultAddr,
         uint256 _maxDeviation,
-        uint256 _maxDeposits
+        uint256 _maxDeposits,
+        address _firstVaultAddr,
+        address _firstGaugeAddr
     )
-        MetaVault(_owner, _CRVUSD, _firstVaultAddr, _maxDeviation, _maxDeposits)
+        MetaVault(
+            _owner,
+            _CRVUSD,
+            _maxDeviation,
+            _maxDeposits,
+            _firstVaultAddr,
+            _firstGaugeAddr
+        )
     {}
 
     function __depositIntoVault(uint256 vaultIdx, uint256 assets) external {
@@ -58,14 +67,28 @@ contract MetaVaultHarness is MetaVault {
 contract MetaVaultTest is Test {
     address constant CRVUSD = 0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E;
 
-    address constant CRV_vault = 0xCeA18a8752bb7e7817F9AE7565328FE415C0f2cA;
-    address constant USDe_vault = 0xc687141c18F20f7Ba405e45328825579fDdD3195;
-    address constant WBTC_vault = 0xccd37EB6374Ae5b1f0b85ac97eFf14770e0D0063;
-    address constant WETH_vault = 0x8fb1c7AEDcbBc1222325C39dd5c1D2d23420CAe3;
-    address constant pufETH_vault = 0xff467c6E827ebbEa64DA1ab0425021E6c89Fbe0d;
-    address constant sFRAX_vault = 0xd0c183C9339e73D7c9146D48E1111d1FBEe2D6f9;
+    // address constant CRV_vault = 0xCeA18a8752bb7e7817F9AE7565328FE415C0f2cA;
+    // address constant USDe_vault = 0xc687141c18F20f7Ba405e45328825579fDdD3195;
+    // address constant WBTC_vault = 0xccd37EB6374Ae5b1f0b85ac97eFf14770e0D0063;
+    // address constant WETH_vault = 0x8fb1c7AEDcbBc1222325C39dd5c1D2d23420CAe3;
+    // address constant pufETH_vault = 0xff467c6E827ebbEa64DA1ab0425021E6c89Fbe0d;
+    // address constant sFRAX_vault = 0xd0c183C9339e73D7c9146D48E1111d1FBEe2D6f9;
+
+    address constant VAULT_CRV = 0xCeA18a8752bb7e7817F9AE7565328FE415C0f2cA;
+    address constant GAUGE_CRV = 0x49887dF6fE905663CDB46c616BfBfBB50e85a265;
+    address constant VAULT_USDe = 0xc687141c18F20f7Ba405e45328825579fDdD3195;
+    address constant GAUGE_USDe = 0xEAED59025d6Cf575238A9B4905aCa11E000BaAD0;
+    address constant VAULT_WBTC = 0xccd37EB6374Ae5b1f0b85ac97eFf14770e0D0063;
+    address constant GAUGE_WBTC = 0x7dCB252f7Ea2B8dA6fA59C79EdF63f793C8b63b6;
+    address constant VAULT_WETH = 0x8fb1c7AEDcbBc1222325C39dd5c1D2d23420CAe3;
+    address constant GAUGE_WETH = 0xF3F6D6d412a77b680ec3a5E35EbB11BbEC319739;
+    address constant VAULT_pufETH = 0xff467c6E827ebbEa64DA1ab0425021E6c89Fbe0d;
+    address constant GAUGE_pufETH = 0x294280254e1c8BcF56F8618623Ec9235e8415633;
+    address constant VAULT_sFRAX = 0xd0c183C9339e73D7c9146D48E1111d1FBEe2D6f9;
+    address constant GAUGE_sFRAX = 0xDFF0ed66fdDCC440FB3aDFB2f12029925799979c;
 
     IVault[] vaults;
+    IGauge[] gauges;
 
     MetaVaultHarness mv;
     MetaVaultHarness mvWithBallast;
@@ -79,15 +102,24 @@ contract MetaVaultTest is Test {
         // vm.startPrank(owner);
 
         // vm.createSelectFork("https://eth.llamarpc.com");
-        vm.createSelectFork("wss://ethereum-rpc.publicnode.com");
+        // vm.createSelectFork("wss://ethereum-rpc.publicnode.com");
+        // vm.createSelectFork("https://rpc.payload.de");
+        vm.createSelectFork("https://eth.api.onfinality.io/public");
 
-        vm.label(CRV_vault, "CRV_vault");
-        vm.label(USDe_vault, "USDe_vault");
-        vm.label(WBTC_vault, "WBTC_vault");
-        vm.label(WETH_vault, "WETH_vault");
-        vm.label(pufETH_vault, "pufETH_vault");
-        vm.label(sFRAX_vault, "sFRAX_vault");
         vm.label(CRVUSD, "CRVUSD");
+
+        vm.label(VAULT_CRV, "VAULT_CRV");
+        vm.label(GAUGE_CRV, "GAUGE_CRV");
+        vm.label(VAULT_USDe, "VAULT_USDe");
+        vm.label(GAUGE_USDe, "GAUGE_USDe");
+        vm.label(VAULT_WBTC, "VAULT_WBTC");
+        vm.label(GAUGE_WBTC, "GAUGE_WBTC");
+        vm.label(VAULT_WETH, "VAULT_WETH");
+        vm.label(GAUGE_WETH, "GAUGE_WETH");
+        vm.label(VAULT_pufETH, "VAULT_pufETH");
+        vm.label(GAUGE_pufETH, "GAUGE_pufETH");
+        vm.label(VAULT_sFRAX, "VAULT_sFRAX");
+        vm.label(GAUGE_sFRAX, "GAUGE_sFRAX");
 
         owner = makeAddr("owner");
         alice = makeAddr("alice");
@@ -103,24 +135,32 @@ contract MetaVaultTest is Test {
         // ########## Set up mv ##########
         //
 
-        vaults.push(IVault(CRV_vault));
-        vaults.push(IVault(USDe_vault));
-        vaults.push(IVault(WBTC_vault));
-        vaults.push(IVault(pufETH_vault));
-        vaults.push(IVault(WETH_vault));
-        vaults.push(IVault(sFRAX_vault));
+        vaults.push(IVault(VAULT_CRV));
+        vaults.push(IVault(VAULT_USDe));
+        vaults.push(IVault(VAULT_WBTC));
+        vaults.push(IVault(VAULT_WETH));
+        vaults.push(IVault(VAULT_pufETH));
+        vaults.push(IVault(VAULT_sFRAX));
+
+        gauges.push(IGauge(GAUGE_CRV));
+        gauges.push(IGauge(GAUGE_USDe));
+        gauges.push(IGauge(GAUGE_WBTC));
+        gauges.push(IGauge(GAUGE_WETH));
+        gauges.push(IGauge(GAUGE_pufETH));
+        gauges.push(IGauge(GAUGE_sFRAX));
 
         mv = new MetaVaultHarness(
             owner,
             CRVUSD,
-            address(vaults[0]),
             200,
-            type(uint256).max
+            type(uint256).max,
+            address(vaults[0]),
+            address(gauges[0])
         );
 
         for (uint256 i = 1; i < vaults.length; i++) {
             vm.prank(owner);
-            mv.addVault(address(vaults[i]));
+            mv.addVault(address(vaults[i]), address(gauges[i]));
         }
 
         uint16[] memory targets = new uint16[](vaults.length);
@@ -141,14 +181,15 @@ contract MetaVaultTest is Test {
         mvWithBallast = new MetaVaultHarness(
             owner,
             CRVUSD,
-            address(vaults[0]),
             200,
-            type(uint256).max
+            type(uint256).max,
+            address(vaults[0]),
+            address(gauges[0])
         );
 
         for (uint256 i = 1; i < vaults.length; i++) {
             vm.prank(owner);
-            mvWithBallast.addVault(address(vaults[i]));
+            mvWithBallast.addVault(address(vaults[i]), address(gauges[i]));
         }
 
         targets = new uint16[](vaults.length);
@@ -164,7 +205,9 @@ contract MetaVaultTest is Test {
         vm.prank(owner);
         ERC20(CRVUSD).approve(address(mvWithBallast), type(uint256).max);
         vm.prank(owner);
+        console.log("owner is depositing 1e25");
         mvWithBallast.deposit(1e25, owner);
+        console.log("owner done depositing");
 
         console.log(">>> %e", mvWithBallast.totalAssets());
         for (uint256 i = 0; i < vaults.length; ++i) {

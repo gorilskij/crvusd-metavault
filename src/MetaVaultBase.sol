@@ -18,6 +18,7 @@ contract MetaVaultBase is Ownable2Step, ERC4626 {
 
     struct Vault {
         IVault vault;
+        IGauge gauge;
         uint16 target; // [0, 10_000]
     }
 
@@ -55,7 +56,8 @@ contract MetaVaultBase is Ownable2Step, ERC4626 {
         address _owner,
         address _CRVUSD,
         // must always have at least one enabled vault
-        address _firstVaultAddr
+        address _firstVaultAddr,
+        address _firstGaugeAddr
     )
         Ownable(_owner)
         ERC20("crvUSD Lending MetaVault", "metaCrvUSD")
@@ -63,24 +65,39 @@ contract MetaVaultBase is Ownable2Step, ERC4626 {
     {
         CRVUSD = IERC20(_CRVUSD);
 
-        vaults.push(Vault(IVault(_firstVaultAddr), 10_000));
+        vaults.push(
+            Vault(IVault(_firstVaultAddr), IGauge(_firstGaugeAddr), 10_000)
+        );
+
         // TODO: ad-hoc approvals?
         CRVUSD.approve(_firstVaultAddr, type(uint256).max);
         cachedCurrentAssets.push(0);
+
+        IVault(_firstVaultAddr).approve(_firstGaugeAddr, type(uint256).max);
     }
 
     // TODO: add emergency approval revoke
 
-    function addVault(address _addr) external onlyOwner {
+    function addVault(
+        address _vaultAddr,
+        address _gaugeAddr
+    ) external onlyOwner {
         for (uint256 i = 0; i < vaults.length; ++i) {
-            if (_addr == address(vaults[i].vault)) {
+            if (_vaultAddr == address(vaults[i].vault)) {
+                revert InvalidArguments();
+            }
+
+            if (_gaugeAddr == address(vaults[i].gauge)) {
                 revert InvalidArguments();
             }
         }
-        vaults.push(Vault(IVault(_addr), 0));
+        vaults.push(Vault(IVault(_vaultAddr), IGauge(_gaugeAddr), 0));
+
         // TODO: ad-hoc approvals?
-        CRVUSD.approve(_addr, type(uint256).max);
+        CRVUSD.approve(_vaultAddr, type(uint256).max);
         cachedCurrentAssets.push(0);
+
+        IVault(_vaultAddr).approve(_gaugeAddr, type(uint256).max);
     }
 
     function setTargets(uint16[] calldata targets) external onlyOwner {
@@ -119,6 +136,8 @@ contract MetaVaultBase is Ownable2Step, ERC4626 {
             }
         }
 
+        // TODO: make this optional, but consider what to do with
+        // disabled vaults
         rebalance();
     }
 
@@ -142,6 +161,38 @@ contract MetaVaultBase is Ownable2Step, ERC4626 {
         return Math.min(super.maxWithdraw(owner), _maxTotalWithdraw());
     }
 
+    function _depositIntoVault(
+        uint256 vaultIndex,
+        uint256 assets
+    ) internal returns (uint256) {
+        Vault memory vault = vaults[vaultIndex];
+
+        console.log("> depositing %e assets into vault", assets);
+        uint256 shares = vault.vault.deposit(assets);
+        console.log("> depositing %e shares into gauge", shares);
+        if (address(vault.gauge) != address(0)) {
+            vault.gauge.deposit(shares);
+        }
+        console.log("> done");
+
+        return shares;
+    }
+
+    function _withdrawFromVault(
+        uint256 vaultIndex,
+        uint256 assets
+    ) internal returns (uint256) {
+        Vault memory vault = vaults[vaultIndex];
+
+        uint256 shares = vault.vault.previewWithdraw(assets);
+        if (address(vault.gauge) != address(0)) {
+            vault.gauge.withdraw(shares);
+        }
+        vault.vault.withdraw(assets);
+
+        return shares;
+    }
+
     // does not skip disabled vaults (target == 0)
     // this is to ensure that assets are removed from those vaults
     // when their targets are set to 0, the extra cost is
@@ -163,7 +214,8 @@ contract MetaVaultBase is Ownable2Step, ERC4626 {
                     vault.vault.maxWithdraw(address(this))
                 );
 
-                vaults[i].vault.withdraw(take);
+                // vaults[i].vault.withdraw(take);
+                _withdrawFromVault(i, take);
 
                 totalTaken += take;
                 done[i] = true;
@@ -171,7 +223,7 @@ contract MetaVaultBase is Ownable2Step, ERC4626 {
         }
 
         // clear cache
-        cachedSumAssets = 0;
+        // cachedSumAssets = 0;
 
         uint256 lastGivenIdx = 0;
         for (uint256 i = 0; i < vaults.length; ++i) {
@@ -185,7 +237,8 @@ contract MetaVaultBase is Ownable2Step, ERC4626 {
                         totalTaken
                     );
 
-                    vaults[i].vault.deposit(give);
+                    // vaults[i].vault.deposit(give);
+                    _depositIntoVault(i, give);
 
                     totalTaken -= give;
                     lastGivenIdx = i;
@@ -193,14 +246,15 @@ contract MetaVaultBase is Ownable2Step, ERC4626 {
             }
 
             // rebuild cache
-            uint256 vaultAssets = vaults[i].vault.maxWithdraw(address(this));
-            cachedCurrentAssets[i] = vaultAssets;
-            cachedSumAssets += vaultAssets;
+            // uint256 vaultAssets = vaults[i].vault.maxWithdraw(address(this));
+            // cachedCurrentAssets[i] = vaultAssets;
+            // cachedSumAssets += vaultAssets;
         }
 
         // deposit whatever is remaining into the last vault
         if (totalTaken > 0) {
-            vaults[lastGivenIdx].vault.deposit(totalTaken);
+            // vaults[lastGivenIdx].vault.deposit(totalTaken);
+            _depositIntoVault(lastGivenIdx, totalTaken);
         }
     }
 }
