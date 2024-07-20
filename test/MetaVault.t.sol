@@ -37,7 +37,9 @@ contract MetaVaultHarness is MetaVault {
         uint256[] memory assets = new uint256[](vaults.length);
         uint256 sumAssets = 0;
         for (uint256 i = 0; i < vaults.length; i++) {
-            assets[i] = vaults[i].vault.maxWithdraw(address(this));
+            uint256 vaultAssets = vaults[i].vault.maxWithdraw(address(this));
+            assets[i] = vaultAssets;
+            sumAssets += vaultAssets;
         }
 
         // reuse the array
