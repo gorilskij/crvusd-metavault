@@ -9,11 +9,14 @@ import {Math} from "@oz/utils/math/Math.sol";
 import {MetaVaultBase} from "./MetaVaultBase.sol";
 
 contract MetaVault is MetaVaultBase {
+    error TooManyDeposits();
+
     uint256 public maxDeviation;
 
     function setMaxDeviation(uint256 _maxDeviation) external onlyOwner {
-        require(100 <= _maxDeviation);
-        require(_maxDeviation <= 5000);
+        if (_maxDeviation < 100 || _maxDeviation > 5000) {
+            revert InvalidArguments();
+        }
 
         maxDeviation = _maxDeviation;
     }
@@ -88,10 +91,9 @@ contract MetaVault is MetaVaultBase {
         uint256 assets,
         uint256 shares
     ) internal override {
-        require(
-            cachedSumAssets + assets <= maxTotalDeposits,
-            "deposit would exceed max deposit limit"
-        );
+        if (cachedSumAssets + assets > maxTotalDeposits) {
+            revert TooManyDeposits();
+        }
 
         super._deposit(caller, receiver, assets, shares);
         // console.log("depositing %e", assets);
@@ -111,7 +113,9 @@ contract MetaVault is MetaVaultBase {
     }
 
     function _allocateDeposit(uint256 depositAmount) internal {
-        require(depositAmount > 0);
+        if (depositAmount == 0) {
+            revert InvalidArguments();
+        }
 
         // console.log("$ getting assets");
 
@@ -184,7 +188,9 @@ contract MetaVault is MetaVaultBase {
     }
 
     function _deallocateWithdrawal(uint256 withdrawAmount) internal {
-        require(withdrawAmount > 0);
+        if (withdrawAmount == 0) {
+            revert InvalidArguments();
+        }
 
         console.log("updating current assets");
         _updateCurrentAssets();

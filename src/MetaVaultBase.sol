@@ -12,6 +12,8 @@ import {Math} from "@oz/utils/math/Math.sol";
 contract MetaVaultBase is Ownable, ERC4626 {
     ERC20 public immutable CRVUSD;
 
+    error InvalidArguments();
+
     struct Vault {
         address addr;
         uint16 target; // [0, 10_000]
@@ -77,7 +79,9 @@ contract MetaVaultBase is Ownable, ERC4626 {
 
     function addVault(address _addr) external onlyOwner {
         for (uint256 i = 0; i < vaults.length; ++i) {
-            require(_addr != vaults[i].addr, "address already exists");
+            if (_addr == vaults[i].addr) {
+                revert InvalidArguments();
+            }
         }
         vaults.push(Vault(_addr, 0, 0));
         // TODO: ad-hoc approvals?
@@ -86,10 +90,9 @@ contract MetaVaultBase is Ownable, ERC4626 {
     }
 
     function setTargets(uint16[] calldata targets) external onlyOwner {
-        require(
-            targets.length == vaults.length,
-            "wrong number of targets provided"
-        );
+        if (targets.length != vaults.length) {
+            revert InvalidArguments();
+        }
 
         numEnabledVaults = 0;
         uint256 totalPercentage = 0;
@@ -100,7 +103,9 @@ contract MetaVaultBase is Ownable, ERC4626 {
                 ++numEnabledVaults;
             }
         }
-        require(totalPercentage == 10_000, "targets do not add up to 10_000");
+        if (totalPercentage != 10_000) {
+            revert InvalidArguments();
+        }
 
         // move all enabled vaults to the front of `vaults`
         uint256 front = 0;
