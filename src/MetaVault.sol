@@ -177,7 +177,8 @@ contract MetaVault is MetaVaultBase {
         uint256 totalAfterWithdrawing = cachedSumAssets -
             Math.min(cachedSumAssets, withdrawAmount);
 
-        console.log("calculating max redeems");
+        console.log("$ total after withdrawing: %e", totalAfterWithdrawing);
+
         // uint256[] memory maxRedeemShares = new uint256[](vaults.length);
         uint256[] memory maxWithdrawAssets = new uint256[](vaults.length);
         uint256 maxMaxWithdraw = 0;
@@ -196,9 +197,16 @@ contract MetaVault is MetaVaultBase {
             ) * totalAfterWithdrawing) / 10_000;
 
             uint256 maxWithdrawal = floorSub(
-                vault.vault.maxWithdraw(address(this)),
+                cachedCurrentAssets[i],
                 minAssetsAfterWithdrawal
             );
+
+            console.log(
+                "$ vault %d min after withdrawal %e",
+                i,
+                minAssetsAfterWithdrawal
+            );
+            console.log("$ max withdrawal %e", maxWithdrawal);
 
             // If we can withdraw just from this vault without violating the
             // target constraints, we do that and exit early

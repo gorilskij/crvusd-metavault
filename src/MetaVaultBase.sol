@@ -44,9 +44,16 @@ contract MetaVaultBase is Ownable2Step, ERC4626 {
 
     function _updateCurrentAssets() internal {
         cachedSumAssets = 0;
-        for (uint256 i = 0; i < vaults.length; ++i) {
-            Vault memory vault = vaults[i];
-            uint256 vaultAssets = vault.vault.maxWithdraw(address(this));
+        for (uint256 i = 0; i < numEnabledVaults; ++i) {
+            uint256 vaultAssets;
+            if (_hasGauge(i)) {
+                vaultAssets = vaults[i].vault.convertToAssets(
+                    vaults[i].gauge.balanceOf(address(this))
+                );
+            } else {
+                vaultAssets = vaults[i].vault.maxWithdraw(address(this));
+            }
+            console.log("UCA vault %d assets %e", i, vaultAssets);
             cachedCurrentAssets[i] = vaultAssets;
             cachedSumAssets += vaultAssets;
         }
