@@ -7,11 +7,12 @@ import {Ownable} from "@oz/access/Ownable.sol";
 import {Ownable2Step} from "@oz/access/Ownable2Step.sol";
 import {ERC4626} from "@oz/token/ERC20/extensions/ERC4626.sol";
 import {ERC20} from "@oz/token/ERC20/ERC20.sol";
+import {IERC20} from "@oz/interfaces/IERC20.sol";
 import {Test, console} from "forge-std/Test.sol";
 import {Math} from "@oz/utils/math/Math.sol";
 
 contract MetaVaultBase is Ownable2Step, ERC4626 {
-    ERC20 public immutable CRVUSD;
+    IERC20 public immutable CRVUSD;
 
     error InvalidArguments();
 
@@ -62,21 +63,23 @@ contract MetaVaultBase is Ownable2Step, ERC4626 {
 
     constructor(
         address _owner,
-        ERC20 _CRVUSD,
+        address _CRVUSD,
         // must always have at least one enabled vault
         address _firstVaultAddr
     )
         Ownable(_owner)
         ERC20("crvUSD Lending MetaVault", "metaCrvUSD")
-        ERC4626(_CRVUSD)
+        ERC4626(ERC20(_CRVUSD))
     {
-        CRVUSD = _CRVUSD;
+        CRVUSD = IERC20(_CRVUSD);
 
         vaults.push(Vault(_firstVaultAddr, 10_000, 0));
         // TODO: ad-hoc approvals?
         CRVUSD.approve(_firstVaultAddr, type(uint256).max);
         cachedCurrentAssets.push(0);
     }
+
+    // TODO: add emergency approval revoke
 
     function addVault(address _addr) external onlyOwner {
         for (uint256 i = 0; i < vaults.length; ++i) {

@@ -7,10 +7,12 @@ import {ERC20} from "@oz/token/ERC20/ERC20.sol";
 import {ERC4626} from "@oz/token/ERC20/extensions/ERC4626.sol";
 import "../src/IVault.sol";
 
+// TODO: mock vault with real vault
+
 contract MetaVaultHarness is MetaVault {
     constructor(
         address _owner,
-        ERC20 _CRVUSD,
+        address _CRVUSD,
         address _firstVaultAddr,
         uint256 _maxDeviation,
         uint256 _maxDeposits
@@ -19,7 +21,7 @@ contract MetaVaultHarness is MetaVault {
     {}
 
     function __depositIntoVault(uint256 vaultIdx, uint256 assets) external {
-        ERC20(CRVUSD).transferFrom(msg.sender, address(this), assets);
+        CRVUSD.transferFrom(msg.sender, address(this), assets);
         _depositIntoVault(vaultIdx, assets);
     }
 
@@ -119,7 +121,7 @@ contract CounterTest is Test {
 
         mv = new MetaVaultHarness(
             owner,
-            ERC20(CRVUSD),
+            CRVUSD,
             address(vaults[0]),
             200,
             type(uint256).max
@@ -147,7 +149,7 @@ contract CounterTest is Test {
 
         mvWithBallast = new MetaVaultHarness(
             owner,
-            ERC20(CRVUSD),
+            CRVUSD,
             address(vaults[0]),
             200,
             type(uint256).max

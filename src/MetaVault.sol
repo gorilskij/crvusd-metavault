@@ -3,7 +3,7 @@ pragma solidity ^0.8.13;
 
 import {IVault} from "./IVault.sol";
 import {Ownable} from "@oz/access/Ownable.sol";
-import {ERC20} from "@oz/token/ERC20/ERC20.sol";
+import {IERC20} from "@oz/interfaces/IERC20.sol";
 import {Test, console} from "forge-std/Test.sol";
 import {Math} from "@oz/utils/math/Math.sol";
 import {MetaVaultBase} from "./MetaVaultBase.sol";
@@ -29,7 +29,7 @@ contract MetaVault is MetaVaultBase {
 
     constructor(
         address _owner,
-        ERC20 _CRVUSD,
+        address _CRVUSD,
         address _firstVaultAddr,
         uint256 _maxDeviation,
         uint256 _maxDeposits
@@ -56,34 +56,40 @@ contract MetaVault is MetaVaultBase {
         uint256 assets
     ) internal returns (uint256) {
         uint256 shares = IVault(vaults[vaultIndex].addr).withdraw(assets);
-        vaults[vaultIndex].shares -= shares;
+        console.log("a");
+        vaults[vaultIndex].shares -= Math.min(
+            vaults[vaultIndex].shares,
+            shares
+        );
 
         uint256 subtractFromCache = Math.min(
             cachedCurrentAssets[vaultIndex],
             assets
         );
+        console.log("b");
         cachedCurrentAssets[vaultIndex] -= subtractFromCache;
+        console.log("c");
         cachedSumAssets -= subtractFromCache;
 
         return shares;
     }
 
-    function _redeemFromVault(
-        uint256 vaultIndex,
-        uint256 shares
-    ) internal returns (uint256) {
-        uint256 assets = IVault(vaults[vaultIndex].addr).redeem(shares);
-        vaults[vaultIndex].shares -= shares;
+    // function _redeemFromVault(
+    //     uint256 vaultIndex,
+    //     uint256 shares
+    // ) internal returns (uint256) {
+    //     uint256 assets = IVault(vaults[vaultIndex].addr).redeem(shares);
+    //     vaults[vaultIndex].shares -= shares;
 
-        uint256 subtractFromCache = Math.min(
-            cachedCurrentAssets[vaultIndex],
-            assets
-        );
-        cachedCurrentAssets[vaultIndex] -= subtractFromCache;
-        cachedSumAssets -= subtractFromCache;
+    //     uint256 subtractFromCache = Math.min(
+    //         cachedCurrentAssets[vaultIndex],
+    //         assets
+    //     );
+    //     cachedCurrentAssets[vaultIndex] -= subtractFromCache;
+    //     cachedSumAssets -= subtractFromCache;
 
-        return assets;
-    }
+    //     return assets;
+    // }
 
     function _deposit(
         address caller,
