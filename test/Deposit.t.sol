@@ -11,8 +11,12 @@ contract MetaVaultHarness is MetaVault {
     constructor(
         address _owner,
         ERC20 _CRVUSD,
-        address _firstVaultAddr
-    ) MetaVault(_owner, _CRVUSD, _firstVaultAddr) {}
+        address _firstVaultAddr,
+        uint256 _maxDeviation,
+        uint256 _maxDeposits
+    )
+        MetaVault(_owner, _CRVUSD, _firstVaultAddr, _maxDeviation, _maxDeposits)
+    {}
 
     function __depositIntoVault(uint256 vaultIdx, uint256 assets) external {
         ERC20(CRVUSD).transferFrom(msg.sender, address(this), assets);
@@ -113,7 +117,13 @@ contract CounterTest is Test {
         vaults.push(IVault(WETH_vault));
         vaults.push(IVault(sFRAX_vault));
 
-        mv = new MetaVaultHarness(owner, ERC20(CRVUSD), address(vaults[0]));
+        mv = new MetaVaultHarness(
+            owner,
+            ERC20(CRVUSD),
+            address(vaults[0]),
+            200,
+            type(uint256).max
+        );
 
         for (uint256 i = 1; i < vaults.length; i++) {
             vm.prank(owner);
@@ -138,7 +148,9 @@ contract CounterTest is Test {
         mvWithBallast = new MetaVaultHarness(
             owner,
             ERC20(CRVUSD),
-            address(vaults[0])
+            address(vaults[0]),
+            200,
+            type(uint256).max
         );
 
         for (uint256 i = 1; i < vaults.length; i++) {
@@ -169,10 +181,7 @@ contract CounterTest is Test {
         // vm.stopPrank();
     }
 
-    function test_gas() public {
-        // mv.publicCurrentAssets();
-        // mv.publicTestGas();
-    }
+    // TODO: test max deposits and max deviation
 
     function test_deposit() public {
         vm.startPrank(alice);

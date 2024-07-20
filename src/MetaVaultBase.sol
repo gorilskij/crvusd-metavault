@@ -134,7 +134,7 @@ contract MetaVaultBase is Ownable, ERC4626 {
     function _maxTotalWithdraw() public view returns (uint256) {
         uint256 assets = 0;
         for (uint256 i = 0; i < numEnabledVaults; ++i) {
-            assets += IVault(vaults[i].addr).maxWithdraw(address(this));
+            assets += IVault(vaults[i].addr).maxWithdraw(address(this)) - 1;
         }
         return assets;
     }

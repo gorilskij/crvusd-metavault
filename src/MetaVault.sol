@@ -105,6 +105,7 @@ contract MetaVault is MetaVaultBase {
         uint256 assets,
         uint256 shares
     ) internal override {
+        console.log("withdrawing %e", assets);
         _deallocateWithdrawal(assets);
         super._withdraw(caller, receiver, owner, assets, shares);
     }
@@ -185,10 +186,12 @@ contract MetaVault is MetaVaultBase {
     function _deallocateWithdrawal(uint256 withdrawAmount) internal {
         require(withdrawAmount > 0);
 
+        console.log("updating current assets");
         _updateCurrentAssets();
         uint256 totalAfterWithdrawing = cachedSumAssets -
             Math.min(cachedSumAssets, withdrawAmount);
 
+        console.log("calculating max redeems");
         uint256[] memory maxRedeemShares = new uint256[](vaults.length);
         uint256[] memory maxWithdrawAssets = new uint256[](vaults.length);
         uint256 maxMaxWithdraw = 0;
@@ -200,16 +203,31 @@ contract MetaVault is MetaVaultBase {
                 Math.min(vault.target, maxDeviation)) * totalAfterWithdrawing) /
                 10_000;
 
-            uint256 minSharesAfterWithdrawal = IVault(vault.addr)
-                .convertToShares(minAssetsAfterWithdrawal);
+            // uint256 minSharesAfterWithdrawal = IVault(vault.addr)
+            //     .convertToShares(minAssetsAfterWithdrawal);
 
-            maxRedeemShares[i] =
-                vault.shares -
-                Math.min(vault.shares, minSharesAfterWithdrawal);
+            // uint256 maxRedemption = vault.shares -
+            //     Math.min(vault.shares, minSharesAfterWithdrawal);
+            // maxRedeemShares[i] = maxRedemption;
 
-            uint256 maxWithdrawal = IVault(vault.addr).maxWithdraw(
+            // uint256 maxWithdrawal = IVault(vault.addr).maxWithdraw(
+            // address(this)
+            // );
+            // uint256 maxWithdrawal = IVault(vault.addr).convertToAssets(
+            //     maxRedemption
+            // );
+
+            // TODO: how to safely use cache here?
+            uint256 currentAssets = IVault(vault.addr).maxWithdraw(
                 address(this)
             );
+            uint256 maxWithdrawal = currentAssets -
+                Math.min(currentAssets, minAssetsAfterWithdrawal);
+
+            if (withdrawAmount <= maxWithdrawal) {
+                _withdrawFromVault(i, withdrawAmount);
+                return;
+            }
 
             maxWithdrawAssets[i] = maxWithdrawal;
             if (maxWithdrawal > maxMaxWithdraw) {
@@ -218,37 +236,81 @@ contract MetaVault is MetaVaultBase {
             }
         }
 
-        uint256 redeemFromVault = IVault(vaults[maxMaxWithdrawIdx].addr)
-            .convertToShares(withdrawAmount) + 1;
-        redeemFromVault = Math.min(
-            redeemFromVault,
-            vaults[maxMaxWithdrawIdx].shares
-        );
-        redeemFromVault = Math.min(
-            redeemFromVault,
-            maxRedeemShares[maxMaxWithdrawIdx]
-        );
-        uint256 withdrawnAssets = _redeemFromVault(
+        console.log("withdrawing max (vault %d)", maxMaxWithdrawIdx);
+        console.log("- withdrawAmount: %e", withdrawAmount);
+        uint256 withdrawFromVault = Math.min(withdrawAmount, maxMaxWithdraw);
+        console.log("- withdrawFromVault: %e", withdrawFromVault);
+        uint256 shares = _withdrawFromVault(
             maxMaxWithdrawIdx,
-            redeemFromVault
+            withdrawFromVault
         );
-        withdrawAmount -= withdrawnAssets;
+        console.log("- shares: %e", shares);
+        vaults[maxMaxWithdrawIdx].shares -= Math.min(
+            vaults[maxMaxWithdrawIdx].shares,
+            shares
+        );
+        console.log("- remaining shares: %e", vaults[maxMaxWithdrawIdx].shares);
+        withdrawAmount -= withdrawFromVault;
+        console.log(
+            "- remaining in vault: %e",
+            IVault(vaults[maxMaxWithdrawIdx].addr).balanceOf(address(this))
+        );
+        console.log("- remaining amount: %e", withdrawAmount);
+
+        // uint256 redeemFromVault = IVault(vaults[maxMaxWithdrawIdx].addr)
+        //     .convertToShares(withdrawAmount) + 1;
+        // redeemFromVault = Math.min(
+        //     redeemFromVault,
+        //     vaults[maxMaxWithdrawIdx].shares
+        // );
+        // redeemFromVault = Math.min(
+        //     redeemFromVault,
+        //     maxRedeemShares[maxMaxWithdrawIdx]
+        // );
+        // uint256 withdrawnAssets = _redeemFromVault(
+        //     maxMaxWithdrawIdx,
+        //     redeemFromVault
+        // );
+        // withdrawAmount -= withdrawnAssets;
 
         if (withdrawAmount == 0) {
             return;
         }
 
         for (uint256 i = 0; i < numEnabledVaults; ++i) {
-            Vault memory vault = vaults[i];
-
             if (i != maxMaxWithdrawIdx) {
-                redeemFromVault =
-                    IVault(vault.addr).convertToShares(withdrawAmount) +
-                    1;
-                redeemFromVault = Math.min(redeemFromVault, vault.shares);
-                redeemFromVault = Math.min(redeemFromVault, maxRedeemShares[i]);
-                withdrawnAssets = _redeemFromVault(i, redeemFromVault);
-                withdrawAmount -= withdrawnAssets;
+                console.log("withdrawing vault %d", i);
+
+                // redeemFromVault =
+                //     IVault(vault.addr).convertToShares(withdrawAmount) +
+                //     1;
+                // redeemFromVault = Math.min(redeemFromVault, vault.shares);
+                // redeemFromVault = Math.min(
+                //     redeemFromVault,
+                //     maxRedeemShares[i]
+                // );
+                // withdrawnAssets = _redeemFromVault(i, redeemFromVault);
+                // withdrawAmount -= withdrawnAssets;
+
+                console.log("- withdrawAmount: %e", withdrawAmount);
+                withdrawFromVault = Math.min(
+                    withdrawAmount,
+                    maxWithdrawAssets[i]
+                );
+                console.log("- withdrawFromVault: %e", withdrawFromVault);
+                shares = _withdrawFromVault(i, withdrawFromVault);
+                console.log("- shares: %e", shares);
+                vaults[i].shares -= Math.min(vaults[i].shares, shares);
+                console.log(
+                    "- remaining shares: %e",
+                    vaults[maxMaxWithdrawIdx].shares
+                );
+                withdrawAmount -= withdrawFromVault;
+                console.log(
+                    "- remaining in vault: %e",
+                    IVault(vaults[i].addr).balanceOf(address(this))
+                );
+                console.log("- remaining amount: %e", withdrawAmount);
 
                 if (withdrawAmount == 0) {
                     break;
