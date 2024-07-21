@@ -112,21 +112,6 @@ contract MetaVaultTest is Test {
         // vm.createSelectFork("http://10.95.33.126:8545/");
         // https://rpc.ankr.com/eth
 
-        vm.label(CRVUSD, "CRVUSD");
-
-        vm.label(VAULT_CRV, "VAULT_CRV");
-        vm.label(GAUGE_CRV, "GAUGE_CRV");
-        vm.label(VAULT_USDe, "VAULT_USDe");
-        vm.label(GAUGE_USDe, "GAUGE_USDe");
-        vm.label(VAULT_WBTC, "VAULT_WBTC");
-        vm.label(GAUGE_WBTC, "GAUGE_WBTC");
-        vm.label(VAULT_WETH, "VAULT_WETH");
-        vm.label(GAUGE_WETH, "GAUGE_WETH");
-        vm.label(VAULT_pufETH, "VAULT_pufETH");
-        vm.label(GAUGE_pufETH, "GAUGE_pufETH");
-        vm.label(VAULT_sFRAX, "VAULT_sFRAX");
-        vm.label(GAUGE_sFRAX, "GAUGE_sFRAX");
-
         owner = makeAddr("owner");
         alice = makeAddr("alice");
         bob = makeAddr("bob");
@@ -213,6 +198,28 @@ contract MetaVaultTest is Test {
         }
 
         // vm.stopPrank();
+
+        vm.label(CRVUSD, "CRVUSD");
+
+        vm.label(VAULT_CRV, "VAULT_CRV");
+        vm.label(GAUGE_CRV, "GAUGE_CRV");
+        vm.label(VAULT_USDe, "VAULT_USDe");
+        vm.label(GAUGE_USDe, "GAUGE_USDe");
+        vm.label(VAULT_WBTC, "VAULT_WBTC");
+        vm.label(GAUGE_WBTC, "GAUGE_WBTC");
+        vm.label(VAULT_WETH, "VAULT_WETH");
+        vm.label(GAUGE_WETH, "GAUGE_WETH");
+        vm.label(VAULT_pufETH, "VAULT_pufETH");
+        vm.label(GAUGE_pufETH, "GAUGE_pufETH");
+        vm.label(VAULT_sFRAX, "VAULT_sFRAX");
+        vm.label(GAUGE_sFRAX, "GAUGE_sFRAX");
+
+        vm.label(alice, "alice");
+        vm.label(bob, "bob");
+        vm.label(charlie, "charlie");
+
+        vm.label(address(mv), "metavault");
+        vm.label(address(mvWithBallast), "metavault_with_ballast");
     }
 
     // TODO: test max deposits and max deviation
@@ -338,6 +345,66 @@ contract MetaVaultTest is Test {
         vm.stopPrank();
     }
 
+    function test_multiDepositWithdraw() public {
+        vm.prank(alice);
+        ERC20(CRVUSD).approve(address(mv), type(uint256).max);
+
+        vm.prank(bob);
+        ERC20(CRVUSD).approve(address(mv), type(uint256).max);
+
+        vm.prank(charlie);
+        ERC20(CRVUSD).approve(address(mv), type(uint256).max);
+
+        vm.startPrank(alice);
+        mv.deposit(1e5, alice);
+        vm.stopPrank();
+
+        vm.startPrank(bob);
+        mv.deposit(2e5, bob);
+        vm.stopPrank();
+
+        vm.startPrank(alice);
+        mv.deposit(3e5, alice);
+        vm.stopPrank();
+
+        vm.startPrank(bob);
+        mv.withdraw(1e5, bob, bob);
+        vm.stopPrank();
+
+        vm.startPrank(charlie);
+        mv.deposit(3e5, charlie);
+        vm.stopPrank();
+
+        // at this stage the balances are, modulo rounding
+        //   alice: 4e5
+        //     bob: 1e5
+        // charlie: 3e5
+        assertLt(absDiff(mv.maxWithdraw(alice), 4e5), 10);
+        assertLt(absDiff(mv.maxWithdraw(bob), 1e5), 10);
+        assertLt(absDiff(mv.maxWithdraw(charlie), 3e5), 10);
+
+        vm.startPrank(alice);
+        mv.withdraw(mv.maxWithdraw(alice), alice, alice);
+        vm.stopPrank();
+
+        vm.startPrank(charlie);
+        mv.withdraw(1e5, charlie, charlie);
+        vm.stopPrank();
+
+        vm.startPrank(charlie);
+        mv.withdraw(mv.maxWithdraw(charlie), charlie, charlie);
+        vm.stopPrank();
+
+        vm.startPrank(bob);
+        mv.withdraw(mv.maxWithdraw(bob), bob, bob);
+        vm.stopPrank();
+
+        // at this point, all balances are 0, modulo rounding
+        assertLt(absDiff(mv.maxWithdraw(alice), 0), 10);
+        assertLt(absDiff(mv.maxWithdraw(bob), 0), 10);
+        assertLt(absDiff(mv.maxWithdraw(charlie), 0), 10);
+    }
+
     function test_withBallastDeposit() public {
         vm.startPrank(alice);
         // assertEq(ERC20(CRVUSD).balanceOf(address(mv)), 0);
@@ -367,54 +434,6 @@ contract MetaVaultTest is Test {
         // assertEq(mvWithBallast.totalAssets(), 1e18 - vaults.length);
 
         // assertEq(ERC20(CRVUSD).balanceOf(address(mvWithBallast)), 0);
-    }
-
-    function test_multiDepositWithdraw() public {
-        assertEq(ERC20(CRVUSD).balanceOf(address(mv)), 0);
-
-        uint256 aliceDeposit = 1e5;
-        uint256 bobDeposit = 2e5;
-        uint256 charlieDeposit = 3e5;
-
-        console.log("# alice deposits");
-        vm.startPrank(alice);
-        ERC20(CRVUSD).approve(address(mv), aliceDeposit);
-        mv.deposit(aliceDeposit, alice);
-
-        console.log("# bob deposits");
-        vm.startPrank(bob);
-        ERC20(CRVUSD).approve(address(mv), bobDeposit);
-        mv.deposit(bobDeposit, bob);
-
-        console.log("# charlie deposits");
-        vm.startPrank(charlie);
-        ERC20(CRVUSD).approve(address(mv), charlieDeposit);
-        mv.deposit(charlieDeposit, charlie);
-
-        console.log("# deposits are done");
-        // TODO: assertions
-
-        console.log("# alice withdraws");
-        vm.startPrank(alice);
-        uint256 aliceWithdrawal = mv.maxWithdraw(alice);
-        console.log("> withdrawal amount (assets) %e", aliceWithdrawal);
-        mv.withdraw(aliceWithdrawal, alice, alice);
-
-        console.log("# bob withdraws");
-        vm.startPrank(bob);
-        uint256 bobWithdrawal = mv.maxWithdraw(bob);
-        console.log("> withdrawal amount (assets) %e", bobWithdrawal);
-        mv.withdraw(bobWithdrawal, bob, bob);
-
-        console.log("# charlie withdraws");
-        vm.startPrank(charlie);
-        uint256 charlieWithdrawal = mv.maxWithdraw(charlie);
-        console.log("> withdrawal amount (assets) %e", charlieWithdrawal);
-        mv.withdraw(charlieWithdrawal, charlie, charlie);
-
-        console.log("# withdrawals done");
-
-        // TODO: assertions
     }
 
     function test_multiDepositRedeem() public {
